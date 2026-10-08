@@ -781,7 +781,8 @@ function calcularYRenderizarDashboard() {
   document.getElementById("kpiJornalesMonto").textContent = formatMoney(totalJornales);
   document.getElementById("kpiTotalHoras").textContent = formatNum(totalHoras, 0);
 
-  document.getElementById("sbTotalHectareas").textContent = `${formatNum(totalHa, 1)} Ha (Alquiladas)`;
+  const haTexto = (totalHa % 1 === 0) ? `${Math.round(totalHa)} hectáreas` : `${formatNum(totalHa, 1)} hectáreas`;
+  document.getElementById("sbTotalHectareas").textContent = haTexto;
   document.getElementById("sbTotalArboles").textContent = `${formatNum(totalArboles, 0)} plantas`;
 
   // Calcular tabla P&L por Variedad
