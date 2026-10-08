@@ -1017,26 +1017,6 @@ function calcularYRenderizarDashboard() {
     sbCultivos.title = txtCultivos;
   }
 
-  // Actualizar Banner de Cultivos en el Dashboard
-  const dashBannerEsp = document.getElementById("dashBannerEspecies");
-  if (dashBannerEsp) {
-    dashBannerEsp.textContent = nombresEspecies.length > 0 ? nombresEspecies.join(", ") : "Sin cultivos registrados";
-  }
-
-  const dashBannerDesc = document.getElementById("dashBannerDescripcion");
-  if (dashBannerDesc) {
-    if (nombresEspecies.length > 0) {
-      dashBannerDesc.textContent = `Cultivos activos registrados: ${nombresEspecies.join(", ")}. Cada variedad mantiene su control de ingresos, tratamientos y jornales para calcular el margen neto por árbol y hectárea.`;
-    } else {
-      dashBannerDesc.textContent = "Registra tus especies y variedades en el menú de cultivos para comenzar el cálculo integral de rendimiento y rentabilidad.";
-    }
-  }
-
-  const dashBannerBadge = document.getElementById("dashBannerBadge");
-  if (dashBannerBadge) {
-    dashBannerBadge.textContent = `🌱 Fundo El Castillo • ${haTexto}`;
-  }
-
   // Calcular tabla P&L por Variedad
   const resumenVariedades = variedades.map(v => {
     const vid = v.id;
