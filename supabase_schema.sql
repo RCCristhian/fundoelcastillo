@@ -205,14 +205,14 @@ VALUES
     ('Lote 2 (1 Ha)', 1.0, 'Alquilado', 'Propietario 2', 'Arriendo de 1 hectárea')
 ON CONFLICT DO NOTHING;
 
--- 2. Variedades y Árboles
+-- 2. Variedades y Árboles (Plantas iniciales en 0 por definir por el usuario)
 INSERT INTO variedades (nombre, especie, num_arboles, anio_plantacion, hectareas, notas)
 VALUES
-    ('PALTA FUERTE 1', 'Palta Fuerte', 140, 2009, 0.4, 'Plantación año 2009 en alta producción'),
-    ('PALTA FUERTE 2', 'Palta Fuerte', 260, 2023, 0.6, 'Plantación año 2023 en desarrollo'),
-    ('PALTA HASS', 'Palta Hass', 600, 2010, 2.0, '2 hectáreas con 600 árboles'),
-    ('PLATANO', 'Plátano', 300, NULL, 1.0, '1 hectárea con 300 plantas'),
-    ('FRUTALES VARIOS', 'Frutales Varios', 50, NULL, 0.2, 'Cítricos y frutales diversos')
+    ('PALTA FUERTE 1', 'Palta Fuerte', 0, 2009, 0.4, 'Plantación año 2009 en alta producción'),
+    ('PALTA FUERTE 2', 'Palta Fuerte', 0, 2023, 0.6, 'Plantación año 2023 en desarrollo'),
+    ('PALTA HASS', 'Palta Hass', 0, 2010, 2.0, '2 hectáreas de Palta Hass'),
+    ('PLATANO', 'Plátano', 0, NULL, 1.0, '1 hectárea de cultivo de plátano'),
+    ('FRUTALES VARIOS', 'Frutales Varios', 0, NULL, 0.2, 'Cítricos y frutales diversos')
 ON CONFLICT (nombre) DO NOTHING;
 
 -- 3. Trabajadores iniciales

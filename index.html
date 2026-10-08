@@ -101,7 +101,10 @@
         </div>
         <div class="flex justify-between items-center py-0.5">
           <span class="text-slate-400">Plantas/Árboles:</span>
-          <span class="font-semibold text-amber-300" id="sbTotalArboles">1,350 plantas</span>
+          <div class="flex items-center gap-1.5">
+            <span class="font-semibold text-amber-300" id="sbTotalArboles">0 plantas (Sin registrar)</span>
+            <button onclick="abrirModalGestionArboles()" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700 transition" title="Configurar cantidad real de plantas">✏️</button>
+          </div>
         </div>
       </div>
 
@@ -193,6 +196,9 @@
           </select>
           <button onclick="abrirModalNuevaCampana()" class="bg-white hover:bg-slate-50 text-emerald-700 font-bold text-xs p-1.5 rounded-lg shadow-2xs border border-slate-200 transition" title="Crear Nueva Campaña">
             ➕
+          </button>
+          <button onclick="borrarCampanaSeleccionada()" class="bg-white hover:bg-rose-50 text-rose-600 font-bold text-xs p-1.5 rounded-lg shadow-2xs border border-slate-200 transition ml-0.5" title="Eliminar Campaña Seleccionada">
+            🗑️
           </button>
         </div>
 
@@ -1389,6 +1395,12 @@
           <label class="block font-semibold text-slate-700 mb-1">Notas / Objetivos</label>
           <input type="text" id="campanaNotas" placeholder="Ej: Meta de cosecha 15 TN" class="w-full px-3 py-2 border rounded-lg">
         </div>
+        <div class="bg-emerald-50 border border-emerald-200/80 rounded-xl p-2.5 flex items-start gap-2 text-emerald-800">
+          <span class="text-sm">📦</span>
+          <p class="text-[11px] leading-tight">
+            <strong>Traspaso de Almacén:</strong> Los insumos y existencias que queden en bodega se trasladarán automáticamente como saldo disponible para esta nueva campaña.
+          </p>
+        </div>
         <div class="flex items-center gap-2">
           <input type="checkbox" id="campanaActiva" checked class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
           <label for="campanaActiva" class="font-medium text-slate-700">Fijar como campaña activa ahora mismo</label>
@@ -1396,6 +1408,48 @@
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalNuevaCampana')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
           <button type="submit" class="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow">Crear Campaña</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Gestión de Árboles y Plantas por Cultivo -->
+  <dialog id="modalGestionArboles" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[94vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-emerald-900 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm flex items-center gap-1.5">
+          🌳 Registro Real de Plantas y Árboles
+        </h3>
+        <button onclick="cerrarDialog('modalGestionArboles')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formGestionArboles" onsubmit="guardarGestionArboles(event)" class="p-5 space-y-4 text-xs">
+        <p class="text-slate-500 text-[11px]">
+          Ingresa la cantidad real de árboles o plantas que tienes sembradas por cada cultivo. Puedes dejarlas en 0 hasta que realices el conteo en campo.
+        </p>
+
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-700 font-semibold border-b">
+              <tr>
+                <th class="py-2 px-3">Cultivo / Variedad</th>
+                <th class="py-2 px-2">Área</th>
+                <th class="py-2 px-3 text-right">Nº Plantas</th>
+              </tr>
+            </thead>
+            <tbody id="listaGestionArbolesBody" class="divide-y divide-slate-100">
+              <!-- Llenado dinámico vía JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t">
+          <button type="button" onclick="ponerArbolesEnCero()" class="text-rose-600 hover:text-rose-800 font-medium text-[11px]">
+            Poner todas en 0
+          </button>
+          <div class="flex gap-2">
+            <button type="button" onclick="cerrarDialog('modalGestionArboles')" class="px-3 py-1.5 border rounded-lg text-slate-600">Cancelar</button>
+            <button type="submit" class="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow">Guardar Cambios</button>
+          </div>
         </div>
       </form>
     </div>

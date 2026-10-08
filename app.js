@@ -254,6 +254,37 @@ async function dataDelete(table, id) {
   return false;
 }
 
+async function dataUpdate(table, id, fields) {
+  if (supabaseClient) {
+    try {
+      const { error } = await supabaseClient.from(table).update(fields).eq("id", id);
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error(`Error Supabase actualizando en ${table}:`, e);
+      return false;
+    }
+  }
+
+  const endpointMap = {
+    "variedades": "variedades",
+    "campanas": "campanas",
+    "productos": "productos"
+  };
+  const ep = endpointMap[table] || table;
+  try {
+    const res = await fetch(`/api/${ep}/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields)
+    });
+    const json = await res.json();
+    return json.success;
+  } catch (err) {
+    return false;
+  }
+}
+
 // ================= GESTIÓN DE CAMPAÑAS AGRÍCOLAS =================
 async function cargarCampanas() {
   const res = await dataFetch("campanas", "*", "anio", false);
@@ -339,7 +370,61 @@ async function guardarNuevaCampana(e) {
     document.getElementById("selectCampana").value = String(anio);
     cambiarCampana(String(anio));
   }
-  mostrarToast(`Campaña ${nombre} creada exitosamente`, "🌱");
+  mostrarToast(`Campaña ${nombre} creada con inventario trasladado`, "🌱");
+}
+
+async function borrarCampanaSeleccionada() {
+  if (campanaActiva === "todas") {
+    alert("No puedes eliminar la vista histórica de 'Todas las Campañas'. Por favor selecciona una campaña específica en el menú.");
+    return;
+  }
+
+  const anio = parseInt(campanaActiva);
+  const campanaObj = (globalData.campanas || []).find(c => Number(c.anio) === anio);
+  const nombre = campanaObj ? campanaObj.nombre : `Campaña ${anio}`;
+  const id = campanaObj ? campanaObj.id : null;
+
+  await eliminarCampana(id, nombre, anio);
+}
+
+async function eliminarCampana(id, nombre, anio) {
+  const confirmar = confirm(`¿Estás seguro de que deseas eliminar la "${nombre}"?`);
+  if (!confirmar) return;
+
+  if (id) {
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from("campanas").delete().eq("id", id);
+      } catch (err) {
+        console.error("Error borrando en Supabase:", err);
+      }
+    } else {
+      try {
+        await fetch(`/api/campanas/${id}`, { method: "DELETE" });
+      } catch (err) {
+        console.error("Error borrando en API local:", err);
+      }
+    }
+  }
+
+  // Eliminar de localStorage si existía
+  const custom = JSON.parse(localStorage.getItem("fundo_campanas_custom") || "[]");
+  const nuevoCustom = custom.filter(c => Number(c.anio) !== Number(anio) && String(c.id) !== String(id));
+  localStorage.setItem("fundo_campanas_custom", JSON.stringify(nuevoCustom));
+
+  // Retirar de memoria
+  globalData.campanas = (globalData.campanas || []).filter(c => Number(c.anio) !== Number(anio) && String(c.id) !== String(id));
+
+  // Si la campaña borrada era la activa, cambiar a otra disponible
+  if (String(campanaActiva) === String(anio)) {
+    const restante = globalData.campanas.find(c => Number(c.anio) !== Number(anio));
+    campanaActiva = restante ? String(restante.anio) : "todas";
+    localStorage.setItem("fundo_campana_activa", campanaActiva);
+  }
+
+  await cargarCampanas();
+  cambiarCampana(campanaActiva);
+  mostrarToast(`Campaña ${nombre} eliminada`, "🗑️");
 }
 
 function filtroPorCampana(item) {
@@ -376,6 +461,21 @@ async function actualizarDatos() {
 async function cargarVariedades() {
   const res = await dataFetch("variedades", "*", "nombre", true);
   if (!res.success) return;
+
+  // Si aún no se han configurado los árboles reales y la base tenía los 1350 de plantilla de Excel, poner en 0
+  const sumaPlantilla = res.data.reduce((a, b) => a + (Number(b.num_arboles) || 0), 0);
+  if (sumaPlantilla === 1350 && !localStorage.getItem("fundo_arboles_reales_iniciado")) {
+    res.data.forEach(v => { v.num_arboles = 0; });
+  }
+
+  // Cargar cantidades guardadas por el usuario si existen
+  const customArboles = JSON.parse(localStorage.getItem("fundo_arboles_custom") || "{}");
+  res.data.forEach(v => {
+    if (customArboles[v.id] !== undefined) {
+      v.num_arboles = customArboles[v.id];
+    }
+  });
+
   globalData.variedades = res.data;
 
   const selects = ["ventaVariedadId", "trataVariedadId", "jornalVariedadId", "geVariedadId"];
@@ -387,7 +487,8 @@ async function cargarVariedades() {
       el.innerHTML += `<option value="">-- General / Todo el Campo --</option>`;
     }
     res.data.forEach(v => {
-      el.innerHTML += `<option value="${v.id}">${v.nombre} (${v.especie} - ${v.num_arboles || 0} árb.)</option>`;
+      const arbStr = v.num_arboles > 0 ? `${v.num_arboles} árb.` : `sin registrar`;
+      el.innerHTML += `<option value="${v.id}">${v.nombre} (${v.especie} - ${arbStr})</option>`;
     });
   });
 
@@ -398,7 +499,7 @@ async function cargarVariedades() {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td class="py-2 px-3 font-bold text-slate-800">${v.nombre}</td>
-        <td class="py-2 px-2">${v.num_arboles || '-'}</td>
+        <td class="py-2 px-2 font-semibold text-slate-700">${v.num_arboles || 0}</td>
         <td class="py-2 px-2">${v.anio_plantacion || '-'}</td>
         <td class="py-2 px-2">${v.hectareas} Ha</td>
         <td class="py-2 px-2 text-center">
@@ -408,6 +509,55 @@ async function cargarVariedades() {
       tbody.appendChild(tr);
     });
   }
+}
+
+function abrirModalGestionArboles() {
+  const tbody = document.getElementById("listaGestionArbolesBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  globalData.variedades.forEach(v => {
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2 px-3 font-bold text-slate-800">${v.nombre}</td>
+      <td class="py-2 px-2 text-slate-500">${v.hectareas || 0} Ha</td>
+      <td class="py-1.5 px-3 text-right">
+        <input type="number" min="0" data-var-id="${v.id}" value="${v.num_arboles || 0}" class="input-arboles w-24 px-2 py-1 border rounded text-right font-bold text-slate-800 focus:ring-1 focus:ring-emerald-500">
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("modalGestionArboles")?.showModal();
+}
+
+function ponerArbolesEnCero() {
+  document.querySelectorAll(".input-arboles").forEach(inp => inp.value = "0");
+}
+
+async function guardarGestionArboles(e) {
+  e.preventDefault();
+  const inputs = document.querySelectorAll(".input-arboles");
+  const customArboles = JSON.parse(localStorage.getItem("fundo_arboles_custom") || "{}");
+
+  for (const inp of inputs) {
+    const varId = parseInt(inp.getAttribute("data-var-id"));
+    const nArboles = parseInt(inp.value) || 0;
+    
+    const varObj = globalData.variedades.find(v => v.id == varId);
+    if (varObj) varObj.num_arboles = nArboles;
+
+    customArboles[varId] = nArboles;
+    await dataUpdate("variedades", varId, { num_arboles: nArboles });
+  }
+
+  localStorage.setItem("fundo_arboles_custom", JSON.stringify(customArboles));
+  localStorage.setItem("fundo_arboles_reales_iniciado", "true");
+  cerrarDialog("modalGestionArboles");
+  mostrarToast("Cantidades de plantas actualizadas", "🌳");
+  await cargarVariedades();
+  calcularYRenderizarDashboard();
 }
 
 async function cargarParcelas() {
@@ -436,6 +586,24 @@ async function cargarParcelas() {
 async function cargarProductos() {
   const res = await dataFetch("productos", "*", "nombre", true);
   if (!res.success) return;
+
+  // Traspaso continuo de inventario entre campañas:
+  // Saldo real = Stock Inicial + Compras Totales - Tratamientos/Aplicaciones Totales
+  res.data.forEach(p => {
+    const comprasProd = (globalData.compras || []).filter(c => c.producto_id == p.id);
+    const totComprado = comprasProd.reduce((a, b) => a + (Number(b.cantidad) || 0), 0);
+
+    const tratProd = (globalData.tratamientos || []).filter(t => t.producto_id == p.id);
+    const totAplicado = tratProd.reduce((a, b) => a + (Number(b.cantidad) || 0), 0);
+
+    const stockInicial = Number(p.stock_anterior) || 0;
+    p.total_comprado = totComprado;
+    p.total_aplicado = totAplicado;
+    if (totComprado > 0 || totAplicado > 0) {
+      p.stock_actual = Math.max(0, stockInicial + totComprado - totAplicado);
+    }
+  });
+
   globalData.productos = res.data;
 
   const selects = ["trataProductoId", "compraProductoId"];
@@ -444,7 +612,7 @@ async function cargarProductos() {
     if (!el) return;
     el.innerHTML = "";
     res.data.forEach(p => {
-      el.innerHTML += `<option value="${p.id}" data-precio="${p.precio_referencial}" data-stock="${p.stock_actual}">${p.nombre} (Stock: ${p.stock_actual} ${p.unidad})</option>`;
+      el.innerHTML += `<option value="${p.id}" data-precio="${p.precio_referencial}" data-stock="${p.stock_actual}">${p.nombre} (Stock disponible: ${p.stock_actual} ${p.unidad})</option>`;
     });
   });
 
@@ -783,7 +951,10 @@ function calcularYRenderizarDashboard() {
 
   const haTexto = (totalHa % 1 === 0) ? `${Math.round(totalHa)} hectáreas` : `${formatNum(totalHa, 1)} hectáreas`;
   document.getElementById("sbTotalHectareas").textContent = haTexto;
-  document.getElementById("sbTotalArboles").textContent = `${formatNum(totalArboles, 0)} plantas`;
+  const sbArb = document.getElementById("sbTotalArboles");
+  if (sbArb) {
+    sbArb.textContent = totalArboles > 0 ? `${formatNum(totalArboles, 0)} plantas` : `0 plantas (Sin registrar)`;
+  }
 
   // Calcular tabla P&L por Variedad
   const resumenVariedades = variedades.map(v => {
@@ -925,9 +1096,14 @@ function renderTablaBalanceCampanas() {
       <td class="py-3 px-3 text-right font-black ${netoColor} text-sm">${formatMoney(neto)}</td>
       <td class="py-3 px-3 text-right font-medium text-slate-800">${formatNum(kilos, 1)} kg</td>
       <td class="py-3 px-2 text-center">
-        <button onclick="document.getElementById('selectCampana').value='${anio}'; cambiarCampana('${anio}');" class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition">
-          Ver panel
-        </button>
+        <div class="flex items-center justify-center gap-1.5">
+          <button onclick="document.getElementById('selectCampana').value='${anio}'; cambiarCampana('${anio}');" class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition">
+            Ver panel
+          </button>
+          <button onclick="eliminarCampana('${campanaObj?.id || ''}', '${nombreCampana}', ${anio})" class="text-[11px] px-1.5 py-1 text-rose-600 hover:bg-rose-50 rounded border border-rose-200 transition" title="Eliminar ${nombreCampana}">
+            🗑️
+          </button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);

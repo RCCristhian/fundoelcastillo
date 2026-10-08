@@ -623,7 +623,8 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
                     "gastos-especificos": "gastos_especificos",
                     "gastos-generales": "gastos_generales",
                     "trabajadores": "trabajadores",
-                    "jornales": "jornales"
+                    "jornales": "jornales",
+                    "campanas": "campanas"
                 }
 
                 table = table_map.get(resource)
