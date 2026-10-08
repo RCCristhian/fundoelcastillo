@@ -24,6 +24,17 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Tabla de Campañas Agrícolas (Escenarios por año)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS campanas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE,
+        anio INTEGER NOT NULL,
+        activa INTEGER DEFAULT 0,
+        notas TEXT
+    );
+    """)
+
     # Tabla de Configuración y Parcelas/Arriendos
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS parcelas (
@@ -251,6 +262,16 @@ def init_db():
         INSERT INTO gastos_generales (fecha, concepto, total, empresa, categoria, notas)
         VALUES ('2026-03-18', 'MOVIMIENTO DE TIERRA A CABALLO', 220.0, 'Servicio Local', 'Preparación de Suelos', 'Registro inicial migrado del Excel')
         """)
+
+    cursor.execute("SELECT COUNT(*) FROM campanas")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany("""
+        INSERT INTO campanas (nombre, anio, activa, notas)
+        VALUES (?, ?, ?, ?)
+        """, [
+            ("Campaña 2026", 2026, 1, "Campaña agrícola principal en curso"),
+            ("Campaña 2025", 2025, 0, "Campaña agrícola anterior")
+        ])
 
     conn.commit()
     conn.close()

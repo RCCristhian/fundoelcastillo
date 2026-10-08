@@ -15,8 +15,12 @@ function initSupabaseClient() {
   return false;
 }
 
+// Estado de Campaña seleccionada
+let campanaActiva = localStorage.getItem("fundo_campana_activa") || "2026";
+
 // Cache de datos
 let globalData = {
+  campanas: [],
   variedades: [],
   parcelas: [],
   productos: [],
@@ -250,48 +254,103 @@ async function dataDelete(table, id) {
   return false;
 }
 
-// ================= CONFIGURACIÓN SUPABASE MODAL =================
-function abrirModalSupabase() {
-  document.getElementById("sbUrl").value = supabaseUrl;
-  document.getElementById("sbKey").value = supabaseKey;
-  document.getElementById("modalSupabase")?.showModal();
+// ================= GESTIÓN DE CAMPAÑAS AGRÍCOLAS =================
+async function cargarCampanas() {
+  const res = await dataFetch("campanas", "*", "anio", false);
+  let campanas = [];
+  if (res.success && res.data && res.data.length > 0) {
+    campanas = res.data;
+  } else {
+    const fallback = [
+      { id: 1, nombre: "Campaña 2026", anio: 2026, activa: true },
+      { id: 2, nombre: "Campaña 2025", anio: 2025, activa: false }
+    ];
+    const custom = JSON.parse(localStorage.getItem("fundo_campanas_custom") || "[]");
+    campanas = [...fallback, ...custom];
+  }
+  globalData.campanas = campanas;
+
+  const select = document.getElementById("selectCampana");
+  if (select) {
+    select.innerHTML = "";
+    campanas.forEach(c => {
+      select.innerHTML += `<option value="${c.anio}">${c.activa ? '🌾 ' : ''}${c.nombre}</option>`;
+    });
+    select.innerHTML += `<option value="todas">📊 Todas las Campañas (Histórico)</option>`;
+    select.value = campanaActiva;
+  }
 }
 
-function guardarConfigSupabase(e) {
-  e.preventDefault();
-  const url = document.getElementById("sbUrl").value.trim();
-  const key = document.getElementById("sbKey").value.trim();
-
-  if (!url || !key) {
-    alert("Por favor ingresa la URL y la Anon Key de tu proyecto de Supabase");
-    return;
+function cambiarCampana(val) {
+  campanaActiva = val;
+  localStorage.setItem("fundo_campana_activa", campanaActiva);
+  
+  // Actualizar fechas por defecto de modales según la campaña
+  if (val !== "todas") {
+    const hoy = new Date();
+    const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dia = String(hoy.getDate()).padStart(2, '0');
+    const fechaCampana = `${val}-${mes}-${dia}`;
+    ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = fechaCampana;
+    });
   }
 
-  localStorage.setItem("fundo_supabase_url", url);
-  localStorage.setItem("fundo_supabase_key", key);
-  supabaseUrl = url;
-  supabaseKey = key;
+  // Recalcular todo reactivamente para la campaña elegida
+  calcularYRenderizarDashboard();
+  renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
+  renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
+  renderTablaGastosGenerales(globalData.gastosGenerales.filter(filtroPorCampana));
+  renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
+  renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
+  renderTablaCompras(globalData.compras.filter(filtroPorCampana));
+  cargarMatrizMensualJornales();
 
-  initSupabaseClient();
-  cerrarDialog("modalSupabase");
-  mostrarToast("Conectado con Supabase en la nube", "⚡");
-  cargarTodosLosDatos();
+  const msg = val === "todas" ? "Mostrando Histórico Consolidado" : `Campaña ${val} activada`;
+  mostrarToast(msg, "🌾");
 }
 
-function desconectarSupabase() {
-  localStorage.removeItem("fundo_supabase_url");
-  localStorage.removeItem("fundo_supabase_key");
-  supabaseUrl = "";
-  supabaseKey = "";
-  supabaseClient = null;
-  actualizarIndicadorDB(false);
-  cerrarDialog("modalSupabase");
-  mostrarToast("Cambiado a modo local SQLite", "📂");
-  cargarTodosLosDatos();
+function abrirModalNuevaCampana() {
+  document.getElementById("modalNuevaCampana")?.showModal();
+}
+
+async function guardarNuevaCampana(e) {
+  e.preventDefault();
+  const nombre = document.getElementById("campanaNombre").value.trim();
+  const anio = parseInt(document.getElementById("campanaAnio").value);
+  const notas = document.getElementById("campanaNotas").value.trim();
+  const activa = document.getElementById("campanaActiva").checked;
+
+  const data = { nombre, anio, activa, notas };
+  const res = await dataInsert("campanas", data);
+  if (!res.success) {
+    const custom = JSON.parse(localStorage.getItem("fundo_campanas_custom") || "[]");
+    if (!custom.some(c => c.anio === anio)) {
+      custom.push({ id: Date.now(), nombre, anio, activa, notas });
+      localStorage.setItem("fundo_campanas_custom", JSON.stringify(custom));
+    }
+  }
+
+  cerrarDialog("modalNuevaCampana");
+  document.getElementById("formNuevaCampana").reset();
+  await cargarCampanas();
+  if (activa) {
+    document.getElementById("selectCampana").value = String(anio);
+    cambiarCampana(String(anio));
+  }
+  mostrarToast(`Campaña ${nombre} creada exitosamente`, "🌱");
+}
+
+function filtroPorCampana(item) {
+  if (campanaActiva === "todas") return true;
+  if (!item || !item.fecha) return true;
+  return item.fecha.startsWith(String(campanaActiva));
 }
 
 // ================= CARGA DE DATOS =================
 async function cargarTodosLosDatos() {
+  await cargarCampanas();
   await Promise.all([
     cargarVariedades(),
     cargarParcelas(),
@@ -305,8 +364,6 @@ async function cargarTodosLosDatos() {
     cargarCompras()
   ]);
 
-  // Si estamos en Supabase, calculamos el dashboard localmente en JS
-  // Si estamos en local, podemos llamar a /api/dashboard o calcularlo
   calcularYRenderizarDashboard();
 }
 
@@ -458,7 +515,7 @@ async function cargarVentas() {
   const res = await dataFetch("ventas", "*", "fecha", false);
   if (!res.success) return;
   globalData.ventas = res.data;
-  renderTablaVentas(res.data);
+  renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
 }
 
 function renderTablaVentas(ventas) {
@@ -466,7 +523,8 @@ function renderTablaVentas(ventas) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  document.getElementById("cantVentasBadge").textContent = ventas.length;
+  const badge = document.getElementById("cantVentasBadge");
+  if (badge) badge.textContent = ventas.length;
 
   ventas.forEach(v => {
     const variedad = globalData.variedades.find(item => item.id == v.variedad_id);
@@ -497,7 +555,8 @@ function renderTablaVentas(ventas) {
 
 function filtrarVentas() {
   const query = document.getElementById("filtroVentas").value.toLowerCase();
-  const filtradas = globalData.ventas.filter(v => {
+  const base = globalData.ventas.filter(filtroPorCampana);
+  const filtradas = base.filter(v => {
     const variedad = globalData.variedades.find(item => item.id == v.variedad_id);
     const varNombre = (v.variedad_nombre || variedad?.nombre || "").toLowerCase();
     return varNombre.includes(query) ||
@@ -512,12 +571,15 @@ async function cargarGastosEspecificos() {
   const res = await dataFetch("gastos_especificos", "*", "fecha", false);
   if (!res.success) return;
   globalData.gastosEspecificos = res.data;
+  renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
+}
 
+function renderTablaGastosEspecificos(lista) {
   const tbody = document.getElementById("gastosEspecificosTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  res.data.forEach(ge => {
+  lista.forEach(ge => {
     const variedad = globalData.variedades.find(item => item.id == ge.variedad_id);
     const varNombre = ge.variedad_nombre || variedad?.nombre || "Sin Variedad";
 
@@ -542,12 +604,15 @@ async function cargarGastosGenerales() {
   const res = await dataFetch("gastos_generales", "*", "fecha", false);
   if (!res.success) return;
   globalData.gastosGenerales = res.data;
+  renderTablaGastosGenerales(globalData.gastosGenerales.filter(filtroPorCampana));
+}
 
+function renderTablaGastosGenerales(lista) {
   const tbody = document.getElementById("gastosGeneralesTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  res.data.forEach(gg => {
+  lista.forEach(gg => {
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
     tr.innerHTML = `
@@ -569,12 +634,16 @@ async function cargarJornales() {
   const res = await dataFetch("jornales", "*", "fecha", false);
   if (!res.success) return;
   globalData.jornales = res.data;
+  renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
+  cargarMatrizMensualJornales();
+}
 
+function renderTablaJornales(lista) {
   const tbody = document.getElementById("jornalesTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  res.data.forEach(j => {
+  lista.forEach(j => {
     const trab = globalData.trabajadores.find(t => t.id == j.trabajador_id);
     const varItem = globalData.variedades.find(v => v.id == j.variedad_id);
     const trabNombre = j.trabajador_nombre || trab?.nombre || "Trabajador";
@@ -602,12 +671,15 @@ async function cargarTratamientos() {
   const res = await dataFetch("tratamientos", "*", "fecha", false);
   if (!res.success) return;
   globalData.tratamientos = res.data;
+  renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
+}
 
+function renderTablaTratamientos(lista) {
   const tbody = document.getElementById("tratamientosTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  res.data.forEach(t => {
+  lista.forEach(t => {
     const varItem = globalData.variedades.find(v => v.id == t.variedad_id);
     const prodItem = globalData.productos.find(p => p.id == t.producto_id);
     const varNombre = t.variedad_nombre || varItem?.nombre || "Lote";
@@ -636,12 +708,15 @@ async function cargarCompras() {
   const res = await dataFetch("compras_productos", "*", "fecha", false);
   if (!res.success) return;
   globalData.compras = res.data;
+  renderTablaCompras(globalData.compras.filter(filtroPorCampana));
+}
 
+function renderTablaCompras(lista) {
   const tbody = document.getElementById("comprasTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  res.data.forEach(c => {
+  lista.forEach(c => {
     const prod = globalData.productos.find(p => p.id == c.producto_id);
     const prodNombre = c.producto_nombre || prod?.nombre || "Producto";
     const unidad = c.producto_unidad || prod?.unidad || "Kg/L";
@@ -666,11 +741,11 @@ async function cargarCompras() {
 
 // ================= MOTOR DE CÁLCULO DE DASHBOARD Y RENTABILIDAD =================
 function calcularYRenderizarDashboard() {
-  const ventas = globalData.ventas;
-  const tratamientos = globalData.tratamientos;
-  const especificos = globalData.gastosEspecificos;
-  const generales = globalData.gastosGenerales;
-  const jornales = globalData.jornales;
+  const ventas = globalData.ventas.filter(filtroPorCampana);
+  const tratamientos = globalData.tratamientos.filter(filtroPorCampana);
+  const especificos = globalData.gastosEspecificos.filter(filtroPorCampana);
+  const generales = globalData.gastosGenerales.filter(filtroPorCampana);
+  const jornales = globalData.jornales.filter(filtroPorCampana);
   const variedades = globalData.variedades;
 
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
@@ -761,6 +836,117 @@ function calcularYRenderizarDashboard() {
   });
   renderDashboardVariedadesMini(resumenVariedades);
   renderTablaResumenEspecies(resumenVariedades);
+  renderTablaBalanceCampanas();
+}
+
+function renderTablaBalanceCampanas() {
+  const tbody = document.getElementById("tablaBalanceCampanasBody");
+  const tfoot = document.getElementById("tablaBalanceCampanasFoot");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  // Obtener todos los años únicos de campañas registradas y datos
+  const aniosSet = new Set();
+  (globalData.campanas || []).forEach(c => { if (c.anio) aniosSet.add(Number(c.anio)); });
+  
+  [...globalData.ventas, ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales].forEach(item => {
+    if (item && item.fecha) {
+      const y = parseInt(item.fecha.substring(0, 4), 10);
+      if (!isNaN(y) && y > 2000 && y < 2100) aniosSet.add(y);
+    }
+  });
+
+  if (aniosSet.size === 0) {
+    aniosSet.add(2026);
+    aniosSet.add(2025);
+  }
+
+  const aniosOrdenados = Array.from(aniosSet).sort((a, b) => b - a);
+
+  let granTotalIngresos = 0;
+  let granTotalInsumos = 0;
+  let granTotalJornales = 0;
+  let granTotalCampo = 0;
+  let granTotalEgresos = 0;
+  let granTotalNeto = 0;
+  let granTotalKilos = 0;
+
+  aniosOrdenados.forEach(anio => {
+    const filtroAnio = item => item && item.fecha && item.fecha.startsWith(String(anio));
+    
+    const vList = globalData.ventas.filter(filtroAnio);
+    const tList = globalData.tratamientos.filter(filtroAnio);
+    const jList = globalData.jornales.filter(filtroAnio);
+    const geList = globalData.gastosEspecificos.filter(filtroAnio);
+    const ggList = globalData.gastosGenerales.filter(filtroAnio);
+
+    const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+    const kilos = vList.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
+    const insumos = tList.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
+    const jornales = jList.reduce((acc, j) => acc + (Number(j.total) || 0), 0);
+    const especificos = geList.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
+    const generales = ggList.reduce((acc, g) => acc + (Number(g.total) || 0), 0);
+    const gastosCampo = especificos + generales;
+    const egresos = insumos + jornales + gastosCampo;
+    const neto = ingresos - egresos;
+
+    granTotalIngresos += ingresos;
+    granTotalInsumos += insumos;
+    granTotalJornales += jornales;
+    granTotalCampo += gastosCampo;
+    granTotalEgresos += egresos;
+    granTotalNeto += neto;
+    granTotalKilos += kilos;
+
+    const esActiva = String(campanaActiva) === String(anio);
+    const campanaObj = (globalData.campanas || []).find(c => Number(c.anio) === anio);
+    const nombreCampana = campanaObj ? campanaObj.nombre : `Campaña ${anio}`;
+
+    const rowClass = esActiva 
+      ? "bg-emerald-50/60 font-medium hover:bg-emerald-100/60 border-l-4 border-l-emerald-600 transition" 
+      : "hover:bg-slate-50 transition";
+
+    const netoColor = neto >= 0 ? "text-emerald-700 font-bold" : "text-rose-700 font-bold";
+
+    const tr = document.createElement("tr");
+    tr.className = rowClass;
+    tr.innerHTML = `
+      <td class="py-3 px-3 font-bold text-slate-900 flex items-center gap-1.5">
+        ${esActiva ? '<span class="text-xs">👉</span>' : ''}
+        <span>${nombreCampana}</span>
+        ${esActiva ? '<span class="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.5 rounded ml-1">SELECCIONADA</span>' : ''}
+      </td>
+      <td class="py-3 px-3 text-right font-black text-emerald-700 bg-emerald-50/30">${formatMoney(ingresos)}</td>
+      <td class="py-3 px-3 text-right text-slate-700">${formatMoney(insumos)}</td>
+      <td class="py-3 px-3 text-right text-slate-700">${formatMoney(jornales)}</td>
+      <td class="py-3 px-3 text-right text-slate-700">${formatMoney(gastosCampo)}</td>
+      <td class="py-3 px-3 text-right font-bold text-rose-700 bg-rose-50/30">${formatMoney(egresos)}</td>
+      <td class="py-3 px-3 text-right font-black ${netoColor} text-sm">${formatMoney(neto)}</td>
+      <td class="py-3 px-3 text-right font-medium text-slate-800">${formatNum(kilos, 1)} kg</td>
+      <td class="py-3 px-2 text-center">
+        <button onclick="document.getElementById('selectCampana').value='${anio}'; cambiarCampana('${anio}');" class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition">
+          Ver panel
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (tfoot) {
+    tfoot.innerHTML = `
+      <tr>
+        <td class="py-3 px-3 uppercase text-[10px] tracking-wider text-slate-800 font-black">TOTAL HISTÓRICO CONSOLIDADO</td>
+        <td class="py-3 px-3 text-right font-black text-emerald-800">${formatMoney(granTotalIngresos)}</td>
+        <td class="py-3 px-3 text-right text-slate-800">${formatMoney(granTotalInsumos)}</td>
+        <td class="py-3 px-3 text-right text-slate-800">${formatMoney(granTotalJornales)}</td>
+        <td class="py-3 px-3 text-right text-slate-800">${formatMoney(granTotalCampo)}</td>
+        <td class="py-3 px-3 text-right font-black text-rose-800">${formatMoney(granTotalEgresos)}</td>
+        <td class="py-3 px-3 text-right font-black ${granTotalNeto >= 0 ? 'text-emerald-800' : 'text-rose-800'} text-sm">${formatMoney(granTotalNeto)}</td>
+        <td class="py-3 px-3 text-right font-black text-slate-900">${formatNum(granTotalKilos, 1)} kg</td>
+        <td class="py-3 px-2 text-center text-[10px] text-slate-500 font-semibold">${aniosOrdenados.length} Campañas</td>
+      </tr>
+    `;
+  }
 }
 
 function renderDashboardVariedadesMini(variedades) {
@@ -955,7 +1141,7 @@ function cargarMatrizMensualJornales() {
   tbody.innerHTML = "";
 
   const trabajadores = globalData.trabajadores;
-  const jornales = globalData.jornales;
+  const jornales = globalData.jornales.filter(filtroPorCampana);
 
   let totalesMesHoras = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   let totalesMesCosto = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];

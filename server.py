@@ -215,6 +215,12 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
                 backup_data = self._get_full_backup(conn)
                 self._send_json({"success": True, "data": backup_data})
 
+            # 15. Campañas Agrícolas
+            elif path == "/api/campanas":
+                cursor.execute("SELECT * FROM campanas ORDER BY anio DESC")
+                rows = [dict(r) for r in cursor.fetchall()]
+                self._send_json({"success": True, "data": rows})
+
             else:
                 self.send_error(404, "Endpoint GET no reconocido")
         except Exception as e:
@@ -457,6 +463,20 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/restore":
                 self._restore_full_backup(conn, body)
                 self._send_json({"success": True, "message": "Datos restaurados con éxito"})
+
+            # 13. Crear Campaña Agrícola
+            elif path == "/api/campanas":
+                cursor.execute("""
+                INSERT INTO campanas (nombre, anio, activa, notas)
+                VALUES (?, ?, ?, ?)
+                """, (
+                    body.get("nombre"),
+                    int(body.get("anio", 2026)),
+                    1 if body.get("activa", False) else 0,
+                    body.get("notas", "")
+                ))
+                conn.commit()
+                self._send_json({"success": True, "id": cursor.lastrowid})
 
             else:
                 self.send_error(404, "Endpoint POST no reconocido")
