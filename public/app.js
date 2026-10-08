@@ -577,19 +577,51 @@ async function cargarParcelas() {
   const tbody = document.getElementById("adminParcelasBody");
   if (tbody) {
     tbody.innerHTML = "";
-    res.data.forEach(p => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="py-2 px-3 font-bold text-slate-800">${p.nombre}</td>
-        <td class="py-2 px-2">${p.hectareas} Ha</td>
-        <td class="py-2 px-2">${p.propietario || '-'}</td>
-        <td class="py-2 px-2 text-center">
-          <button onclick="dataDelete('parcelas', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
+    if (res.data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-slate-400 italic">No hay arriendos registrados. Agrega uno con el botón "+ Arriendo".</td></tr>`;
+    } else {
+      res.data.forEach(p => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-bold text-slate-800">${p.nombre}</td>
+          <td class="py-2.5 px-2 font-semibold text-emerald-700">${p.hectareas} Ha</td>
+          <td class="py-2.5 px-2 text-slate-600">${p.propietario || '-'}</td>
+          <td class="py-2.5 px-2 text-center whitespace-nowrap">
+            <button onclick="abrirModalEditarParcela(${p.id})" class="text-blue-600 hover:text-blue-800 p-1 mr-1" title="Editar este arriendo">✏️</button>
+            <button onclick="dataDelete('parcelas', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
   }
+}
+
+function abrirModalParcela() {
+  const form = document.getElementById("formParcela");
+  if (form) form.reset();
+  if (document.getElementById("parcEditId")) document.getElementById("parcEditId").value = "";
+  if (document.getElementById("modalParcelaTitle")) {
+    document.getElementById("modalParcelaTitle").textContent = "Nuevo Arriendo / Parcela";
+  }
+  document.getElementById("modalParcela")?.showModal();
+}
+
+function abrirModalEditarParcela(id) {
+  const p = globalData.parcelas.find(item => String(item.id) === String(id));
+  if (!p) return;
+
+  if (document.getElementById("parcEditId")) document.getElementById("parcEditId").value = p.id;
+  if (document.getElementById("parcNombre")) document.getElementById("parcNombre").value = p.nombre || "";
+  if (document.getElementById("parcHectareas")) document.getElementById("parcHectareas").value = p.hectareas || "";
+  if (document.getElementById("parcTenencia")) document.getElementById("parcTenencia").value = p.tipo_tenencia || "Alquilado";
+  if (document.getElementById("parcPropietario")) document.getElementById("parcPropietario").value = p.propietario || "";
+
+  if (document.getElementById("modalParcelaTitle")) {
+    document.getElementById("modalParcelaTitle").textContent = `Editar Arriendo: ${p.nombre}`;
+  }
+
+  document.getElementById("modalParcela")?.showModal();
 }
 
 async function cargarProductos() {
@@ -1794,19 +1826,52 @@ async function confirmarLimpiarBaseDeDatos() {
 
 async function guardarParcela(e) {
   e.preventDefault();
-  const data = {
-    nombre: document.getElementById("parcNombre").value.trim(),
-    hectareas: parseFloat(document.getElementById("parcHectareas").value) || 0,
-    tipo_tenencia: document.getElementById("parcTenencia").value,
-    propietario: document.getElementById("parcPropietario").value
+  const editId = document.getElementById("parcEditId")?.value;
+  const nombre = document.getElementById("parcNombre").value.trim();
+  const haRaw = document.getElementById("parcHectareas").value;
+  const hectareas = parseFloat(String(haRaw).replace(',', '.')) || 0;
+  const tipo_tenencia = document.getElementById("parcTenencia").value;
+  const propietario = document.getElementById("parcPropietario").value.trim();
+
+  if (!nombre) {
+    mostrarToast("Por favor ingresa el nombre del lote o arriendo", "⚠️");
+    return;
+  }
+
+  const record = {
+    nombre,
+    hectareas,
+    tipo_tenencia,
+    propietario
   };
 
-  const res = await dataInsert("parcelas", data);
-  if (res.success) {
+  try {
+    if (editId) {
+      if (supabaseClient) {
+        const { error } = await supabaseClient.from("parcelas").update(record).eq("id", editId);
+        if (error) throw error;
+      } else {
+        await dataUpdate("parcelas", editId, record);
+      }
+      mostrarToast(`Arriendo ${nombre} actualizado correctamente`, "🗺️");
+    } else {
+      if (supabaseClient) {
+        const { error } = await supabaseClient.from("parcelas").insert([record]);
+        if (error) throw error;
+      } else {
+        await dataInsert("parcelas", record);
+      }
+      mostrarToast(`Arriendo ${nombre} registrado con éxito`, "🗺️");
+    }
+
     cerrarDialog("modalParcela");
     document.getElementById("formParcela").reset();
-    mostrarToast("Parcela registrada", "🗺️");
-    actualizarDatos();
+    if (document.getElementById("parcEditId")) document.getElementById("parcEditId").value = "";
+    await cargarParcelas();
+    calcularYRenderizarDashboard();
+  } catch (err) {
+    console.error("Error guardando arriendo/parcela:", err);
+    mostrarToast(`Error: ${err.message || err}`, "❌");
   }
 }
 

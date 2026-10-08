@@ -813,11 +813,11 @@
           <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
             <div class="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 class="text-sm sm:text-base font-bold text-slate-900">Arriendos de Campo (3 Ha)</h3>
-                <p class="text-[11px] text-slate-400">2 Ha a Propietario 1, 1 Ha a Propietario 2</p>
+                <h3 class="text-sm sm:text-base font-bold text-slate-900">Arriendos de Campo (Superficie)</h3>
+                <p class="text-[11px] text-slate-400">Distribución de hectáreas alquiladas y propietarios</p>
               </div>
               <button onclick="abrirModalParcela()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition">
-                + Parcela
+                + Arriendo
               </button>
             </div>
             <div class="overflow-x-auto mt-3">
@@ -1347,18 +1347,19 @@
   <dialog id="modalParcela" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-purple-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Nueva Parcela / Arriendo</h3>
+        <h3 class="font-bold text-sm" id="modalParcelaTitle">Nuevo Arriendo / Parcela</h3>
         <button onclick="cerrarDialog('modalParcela')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formParcela" onsubmit="guardarParcela(event)" class="p-5 space-y-3.5 text-xs">
+        <input type="hidden" id="parcEditId" value="">
         <div>
-          <label class="block font-semibold text-slate-700 mb-1">Nombre del Lote *</label>
-          <input type="text" id="parcNombre" required placeholder="Ej: Lote Arriendo 3" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block font-semibold text-slate-700 mb-1">Nombre del Lote / Arriendo *</label>
+          <input type="text" id="parcNombre" required placeholder="Ej: Lote 1 (2 Ha)" class="w-full px-3 py-2 border rounded-lg">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Hectáreas *</label>
-            <input type="number" step="0.1" id="parcHectareas" required placeholder="1.0" class="w-full px-3 py-2 border rounded-lg">
+            <input type="text" inputmode="decimal" id="parcHectareas" required placeholder="Ej: 2.0" class="w-full px-3 py-2 border rounded-lg">
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Condición</label>
@@ -1369,7 +1370,7 @@
           </div>
         </div>
         <div>
-          <label class="block font-semibold text-slate-700 mb-1">Propietario</label>
+          <label class="block font-semibold text-slate-700 mb-1">Propietario / Arrendador</label>
           <input type="text" id="parcPropietario" placeholder="Ej: Propietario 1" class="w-full px-3 py-2 border rounded-lg">
         </div>
         <div class="pt-3 flex justify-end space-x-2 border-t">
@@ -1473,6 +1474,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261008_3"></script>
+  <script src="app.js?v=20261008_4"></script>
 </body>
 </html>
