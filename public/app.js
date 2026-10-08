@@ -503,7 +503,8 @@ async function cargarVariedades() {
         <td class="py-2 px-2">${v.anio_plantacion || '-'}</td>
         <td class="py-2 px-2">${v.hectareas} Ha</td>
         <td class="py-2 px-2 text-center">
-          <button onclick="dataDelete('variedades', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+          <button onclick="abrirModalEditarVariedad(${v.id})" class="text-blue-600 hover:text-blue-800 p-1 mr-1" title="Editar">✏️</button>
+          <button onclick="dataDelete('variedades', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -1399,9 +1400,31 @@ function abrirModalGastoGeneral() { document.getElementById("modalGastoGeneral")
 function abrirModalGastoEspecifico() { document.getElementById("modalGastoEspecifico")?.showModal(); }
 function abrirModalCompraInsumo() { document.getElementById("modalCompraInsumo")?.showModal(); }
 function abrirModalNuevoProducto() { document.getElementById("modalNuevoProducto")?.showModal(); }
-function abrirModalTrabajador() { document.getElementById("modalTrabajador")?.showModal(); }
-function abrirModalVariedad() { document.getElementById("modalVariedad")?.showModal(); }
-function abrirModalParcela() { document.getElementById("modalParcela")?.showModal(); }
+function abrirModalVariedad() {
+  const modalTitle = document.getElementById("modalVariedadTitle");
+  if (modalTitle) modalTitle.textContent = "Nueva Variedad / Cultivo";
+  document.getElementById("formVariedad").reset();
+  if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
+  if (document.getElementById("varNumArboles")) document.getElementById("varNumArboles").value = "0";
+  document.getElementById("modalVariedad")?.showModal();
+}
+
+function abrirModalEditarVariedad(id) {
+  const v = globalData.variedades.find(item => item.id == id);
+  if (!v) return;
+
+  const modalTitle = document.getElementById("modalVariedadTitle");
+  if (modalTitle) modalTitle.textContent = "Editar Variedad / Cultivo";
+  
+  if (document.getElementById("varEditId")) document.getElementById("varEditId").value = v.id;
+  document.getElementById("varNombre").value = v.nombre || "";
+  document.getElementById("varEspecie").value = v.especie || "";
+  document.getElementById("varNumArboles").value = v.num_arboles || 0;
+  document.getElementById("varAnio").value = v.anio_plantacion || "";
+  document.getElementById("varHectareas").value = v.hectareas || 1.0;
+
+  document.getElementById("modalVariedad")?.showModal();
+}
 function cerrarDialog(id) { document.getElementById(id)?.close(); }
 
 function calcularTotalVenta() {
@@ -1618,20 +1641,65 @@ async function guardarTrabajador(e) {
 
 async function guardarVariedad(e) {
   e.preventDefault();
+  const editId = document.getElementById("varEditId")?.value;
+  const nombre = document.getElementById("varNombre").value.trim().toUpperCase();
+  const especie = document.getElementById("varEspecie").value.trim() || nombre;
+  const num_arboles = parseInt(document.getElementById("varNumArboles").value) || 0;
+  const anio_plantacion = parseInt(document.getElementById("varAnio").value) || null;
+  const hectareas = parseFloat(document.getElementById("varHectareas").value) || 0;
+
+  if (!nombre) {
+    alert("Por favor ingresa el nombre de la variedad o cultivo.");
+    return;
+  }
+
   const data = {
-    nombre: document.getElementById("varNombre").value.trim().toUpperCase(),
-    especie: document.getElementById("varEspecie").value.trim() || document.getElementById("varNombre").value.trim(),
-    num_arboles: parseInt(document.getElementById("varNumArboles").value) || 0,
-    anio_plantacion: parseInt(document.getElementById("varAnio").value) || null,
-    hectareas: parseFloat(document.getElementById("varHectareas").value) || 0
+    nombre,
+    especie,
+    num_arboles,
+    anio_plantacion,
+    hectareas
   };
 
+  // Buscar si la variedad ya existe (por ID o por Nombre como PALTA HASS)
+  let existente = null;
+  if (editId) {
+    existente = globalData.variedades.find(v => String(v.id) === String(editId));
+  } else {
+    existente = globalData.variedades.find(v => v.nombre.trim().toUpperCase() === nombre);
+  }
+
+  if (existente) {
+    // Si ya existe (como PALTA HASS), la actualizamos directamente con los nuevos datos
+    const ok = await dataUpdate("variedades", existente.id, data);
+    if (ok) {
+      Object.assign(existente, data);
+      const customArboles = JSON.parse(localStorage.getItem("fundo_arboles_custom") || "{}");
+      customArboles[existente.id] = num_arboles;
+      localStorage.setItem("fundo_arboles_custom", JSON.stringify(customArboles));
+      localStorage.setItem("fundo_arboles_reales_iniciado", "true");
+
+      cerrarDialog("modalVariedad");
+      document.getElementById("formVariedad").reset();
+      if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
+      mostrarToast(`Cultivo ${nombre} actualizado correctamente`, "🥑");
+      await cargarVariedades();
+      calcularYRenderizarDashboard();
+      return;
+    }
+  }
+
+  // Si es un cultivo nuevo:
   const res = await dataInsert("variedades", data);
   if (res.success) {
     cerrarDialog("modalVariedad");
     document.getElementById("formVariedad").reset();
-    mostrarToast("Variedad registrada", "🥑");
-    actualizarDatos();
+    if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
+    mostrarToast(`Cultivo ${nombre} registrado con éxito`, "🥑");
+    await cargarVariedades();
+    calcularYRenderizarDashboard();
+  } else {
+    alert("Hubo un detalle al guardar el cultivo. Si ya existe un cultivo con este nombre, puedes editarlo.");
   }
 }
 
