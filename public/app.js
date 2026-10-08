@@ -1619,13 +1619,17 @@ async function guardarGastoGeneral(e) {
 
 async function guardarGastoEspecifico(e) {
   e.preventDefault();
+  const totalRaw = document.getElementById("geTotal")?.value || "0";
+  const total = parseFloat(String(totalRaw).replace(',', '.')) || 0;
+  const varId = document.getElementById("geVariedadId")?.value;
+
   const data = {
-    fecha: document.getElementById("geFecha").value,
-    variedad_id: parseInt(document.getElementById("geVariedadId").value),
-    concepto: document.getElementById("geConcepto").value,
-    total: parseFloat(document.getElementById("geTotal").value),
-    empresa: document.getElementById("geEmpresa").value,
-    nro_factura: document.getElementById("geFactura").value
+    fecha: document.getElementById("geFecha")?.value,
+    variedad_id: varId ? parseInt(varId) : null,
+    concepto: document.getElementById("geConcepto")?.value || "",
+    total: total,
+    empresa: document.getElementById("geEmpresa")?.value || "",
+    nro_factura: document.getElementById("geFactura")?.value || ""
   };
 
   const res = await dataInsert("gastos_especificos", data);
@@ -1633,7 +1637,7 @@ async function guardarGastoEspecifico(e) {
     cerrarDialog("modalGastoEspecifico");
     document.getElementById("formGastoEspecifico").reset();
     initFechasHoy();
-    mostrarToast("Gasto específico guardado", "🌱");
+    mostrarToast("Gasto específico guardado", "📉");
     actualizarDatos();
   }
 }
