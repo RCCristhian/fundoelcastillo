@@ -1,20 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="115" fill="#064e3b"/>
-  <circle cx="256" cy="256" r="230" fill="url(#grad)" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#047857"/>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
       <stop offset="100%" stop-color="#064e3b"/>
     </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.35"/>
+    </filter>
   </defs>
-  <!-- Sombrero y Campesino -->
-  <g transform="scale(12) translate(5, 5)">
-    <path d="M10 12.5C10 7.5 11.8 4.5 16 4.5C20.2 4.5 22 7.5 22 12.5" fill="#ca8a04" stroke="#fef08a" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M10.2 11C12 11.8 20 11.8 21.8 11" stroke="#78350f" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="M2.5 14C6 11.5 10.5 11 16 11C21.5 11 26 11.5 29.5 14C27 15.8 22 14.8 16 14.8C10 14.8 5 15.8 2.5 14Z" fill="#eab308" stroke="#fef08a" stroke-width="1.6" stroke-linejoin="round"/>
-    <path d="M11 15.5V18.5C11 21.5 13.2 24 16 24C18.8 24 21 21.5 21 18.5V15.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M16 17V19" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
-    <path d="M14 20.8C15 21.8 17 21.8 18 20.8" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
-    <path d="M8 29.5C8 26 11.5 25 16 25C20.5 25 24 26 24 29.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Fondo redondeado estilo App Icon -->
+  <rect width="64" height="64" rx="16" fill="url(#bgGrad)"/>
+  
+  <g filter="url(#shadow)" transform="translate(0, 1)">
+    <!-- Copa del sombrero -->
+    <path d="M22 25 C22 15 25 9 32 9 C39 9 42 15 42 25 Z" fill="#d97706" stroke="#fef08a" stroke-width="1.8" stroke-linejoin="round"/>
+    <!-- Cinta tradicional del sombrero -->
+    <path d="M22.5 22.5 C25 24 39 24 41.5 22.5" stroke="#78350f" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <!-- Ala ancha del sombrero campesino -->
+    <path d="M7 28 C14 23 23 22 32 22 C41 22 50 23 57 28 C52 31.5 42 29.5 32 29.5 C22 29.5 12 31.5 7 28 Z" fill="#f59e0b" stroke="#fef08a" stroke-width="1.8" stroke-linejoin="round"/>
+    <!-- Rostro silueta -->
+    <path d="M24 31 V37 C24 41.5 27.5 45 32 45 C36.5 45 40 41.5 40 37 V31" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+    <!-- Nariz y Sonrisa -->
+    <path d="M32 34 V37.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+    <path d="M28.5 40 C30.5 41.8 33.5 41.8 35.5 40" stroke="#ffffff" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <!-- Cuello y Hombros -->
+    <path d="M17 55 C17 48 24 47 32 47 C40 47 47 48 47 55" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" fill="none"/>
   </g>
 </svg>
