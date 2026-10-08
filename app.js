@@ -1678,7 +1678,7 @@ async function guardarVariedad(e) {
     return;
   }
 
-  const data = {
+  const record = {
     nombre,
     especie,
     num_arboles,
@@ -1686,70 +1686,44 @@ async function guardarVariedad(e) {
     hectareas
   };
 
-  // Buscar si la variedad ya existe (por ID o por Nombre como HASS o PALTA HASS)
-  let existente = null;
-  if (editId) {
-    existente = globalData.variedades.find(v => String(v.id) === String(editId));
-  } else {
-    existente = globalData.variedades.find(v => v.nombre.trim().toUpperCase() === nombre);
-  }
-
-  // Si no se encontró en memoria local pero existe en Supabase por nombre
-  if (!existente && supabaseClient) {
-    try {
-      const { data: found } = await supabaseClient.from("variedades").select("id").ilike("nombre", nombre).limit(1);
-      if (found && found.length > 0) {
-        existente = found[0];
+  try {
+    if (supabaseClient) {
+      if (editId) {
+        const { error } = await supabaseClient.from("variedades").update(record).eq("id", editId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseClient.from("variedades").upsert(record, { onConflict: "nombre" });
+        if (error) throw error;
       }
-    } catch (e) {}
-  }
-
-  if (existente) {
-    // Si ya existe, lo actualizamos directamente
-    const ok = await dataUpdate("variedades", existente.id, data);
-    if (ok) {
-      Object.assign(existente, data);
-      const customArboles = JSON.parse(localStorage.getItem("fundo_arboles_custom") || "{}");
-      customArboles[existente.id] = num_arboles;
-      localStorage.setItem("fundo_arboles_custom", JSON.stringify(customArboles));
-      localStorage.setItem("fundo_arboles_reales_iniciado", "true");
-
-      cerrarDialog("modalVariedad");
-      document.getElementById("formVariedad").reset();
-      if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
-      mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
-      await cargarVariedades();
-      calcularYRenderizarDashboard();
-      return;
+    } else {
+      if (editId) {
+        await dataUpdate("variedades", editId, record);
+      } else {
+        const existente = globalData.variedades.find(v => v.nombre.trim().toUpperCase() === nombre);
+        if (existente) {
+          await dataUpdate("variedades", existente.id, record);
+        } else {
+          await dataInsert("variedades", record);
+        }
+      }
     }
-  }
 
-  // Si es un cultivo nuevo:
-  const res = await dataInsert("variedades", data);
-  if (res.success) {
+    // Guardar árboles en custom si aplica
+    const customArboles = JSON.parse(localStorage.getItem("fundo_arboles_custom") || "{}");
+    if (editId) customArboles[editId] = num_arboles;
+    localStorage.setItem("fundo_arboles_custom", JSON.stringify(customArboles));
+    localStorage.setItem("fundo_arboles_reales_iniciado", "true");
+
     cerrarDialog("modalVariedad");
     document.getElementById("formVariedad").reset();
     if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
-    mostrarToast(`Cultivo ${nombre} registrado con éxito`, "🥑");
+
+    mostrarToast(`¡Cultivo ${nombre} guardado con éxito!`, "🥑");
     await cargarVariedades();
     calcularYRenderizarDashboard();
-  } else {
-    // Si falló por duplicado de nombre en Supabase, actualizarlo de inmediato
-    if (supabaseClient) {
-      try {
-        const { error: updErr } = await supabaseClient.from("variedades").update(data).ilike("nombre", nombre);
-        if (!updErr) {
-          cerrarDialog("modalVariedad");
-          document.getElementById("formVariedad").reset();
-          if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
-          mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
-          await cargarVariedades();
-          calcularYRenderizarDashboard();
-          return;
-        }
-      } catch (err) {}
-    }
-    mostrarToast(`No se pudo guardar el cultivo ${nombre}. Intenta nuevamente.`, "❌");
+  } catch (err) {
+    console.error("Error al guardar variedad:", err);
+    mostrarToast(`Error al guardar: ${err.message || err}`, "❌");
   }
 }
 
