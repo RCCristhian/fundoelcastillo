@@ -1,41 +1,18 @@
-// Configuración Supabase por defecto para Fundo El Castillo
-const DEFAULT_SUPABASE_URL = "https://myybakusxjpkvbrrcvmy.supabase.co";
-const DEFAULT_SUPABASE_KEY = "sb_publishable_m7m0tA0rjzV9lte44czjOA_Sp_G9fG2";
-
-let supabaseUrl = localStorage.getItem("fundo_supabase_url") || DEFAULT_SUPABASE_URL;
-let supabaseKey = localStorage.getItem("fundo_supabase_key") || DEFAULT_SUPABASE_KEY;
+// Conexión Directa Automática a Supabase Cloud - Fundo El Castillo
+const SUPABASE_URL = "https://myybakusxjpkvbrrcvmy.supabase.co";
+const SUPABASE_KEY = "sb_publishable_m7m0tA0rjzV9lte44czjOA_Sp_G9fG2";
 let supabaseClient = null;
 
-// Inicializar cliente Supabase si existen credenciales
 function initSupabaseClient() {
-  if (supabaseUrl && supabaseKey && window.supabase) {
+  if (window.supabase) {
     try {
-      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
-      actualizarIndicadorDB(true);
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
       return true;
     } catch (e) {
-      console.error("Error al inicializar Supabase:", e);
-      actualizarIndicadorDB(false);
+      console.error("Error al conectar Supabase:", e);
     }
-  } else {
-    actualizarIndicadorDB(false);
   }
-  supabaseClient = null;
   return false;
-}
-
-function actualizarIndicadorDB(isCloud) {
-  const badge = document.getElementById("dbStatusBadge");
-  const text = document.getElementById("dbStatusText");
-  if (!badge || !text) return;
-
-  if (isCloud) {
-    badge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition";
-    text.textContent = "Supabase Nube";
-  } else {
-    badge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition";
-    text.textContent = "SQLite Local";
-  }
 }
 
 // Cache de datos

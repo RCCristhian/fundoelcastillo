@@ -142,36 +142,13 @@
       </nav>
     </div>
 
-    <!-- Footer Sidebar: Estado de Base de Datos y Supabase -->
-    <div class="p-4 border-t border-slate-800/80 text-xs text-slate-400 space-y-2.5 bg-slate-900/60">
-      <!-- Indicador Cloud / Local -->
-      <div class="flex items-center justify-between">
-        <span class="text-[11px] text-slate-400">Base de datos:</span>
-        <button onclick="abrirModalSupabase()" id="dbStatusBadge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span id="dbStatusText">SQLite Local</span>
-          <span class="text-[9px] underline">⚙️</span>
-        </button>
-      </div>
-
-      <div class="flex items-center justify-between">
-        <span>Moneda:</span>
-        <select id="monedaSelect" onchange="cambiarMoneda(this.value)" class="bg-slate-800 text-white rounded px-2 py-1 border border-slate-700 focus:outline-none text-xs">
-          <option value="S/." selected>Soles (S/.)</option>
-          <option value="$">Dólares ($)</option>
-        </select>
-      </div>
-
-      <div class="flex space-x-2 pt-1">
-        <button onclick="descargarBackup()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 py-1.5 px-2 rounded-lg flex items-center justify-center space-x-1 transition text-[11px]" title="Descargar Copia de Seguridad JSON">
-          <svg class="w-3.5 h-3.5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          <span>Backup JSON</span>
-        </button>
-        <button onclick="document.getElementById('restoreFileInput').click()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 py-1.5 px-2.5 rounded-lg flex items-center justify-center transition" title="Restaurar Copia de Seguridad">
-          <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-        </button>
-        <input type="file" id="restoreFileInput" style="display:none" accept=".json" onchange="restaurarBackup(event)">
-      </div>
+    <!-- Footer Sidebar: Selector de Moneda Limpio -->
+    <div class="p-4 border-t border-slate-800/80 text-xs text-slate-400 flex items-center justify-between bg-slate-900/60">
+      <span class="text-[11px] text-slate-400">Moneda:</span>
+      <select id="monedaSelect" onchange="cambiarMoneda(this.value)" class="bg-slate-800 text-white rounded px-2 py-1 border border-slate-700 focus:outline-none text-xs">
+        <option value="S/." selected>Soles (S/.)</option>
+        <option value="$">Dólares ($)</option>
+      </select>
     </div>
   </aside>
 
@@ -363,12 +340,6 @@
             <div>
               <h3 class="text-base sm:text-lg font-bold text-slate-900">Cuenta de Resultados por Especie</h3>
               <p class="text-[11px] sm:text-xs text-slate-500">Muestra fielmente tu plantilla: Ingresos, insumos, gastos específicos, generales y jornales por cultivo.</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button onclick="exportarTablaCSV('resumenVariedadesExport', 'Resumen_Rentabilidad_Especies.csv')" class="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg flex items-center justify-center gap-1.5 transition">
-                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                Descargar Excel / CSV
-              </button>
             </div>
           </div>
 
@@ -580,9 +551,6 @@
               <h3 class="text-base sm:text-lg font-bold text-slate-900">Resumen Mensual de Mano de Obra</h3>
               <p class="text-[11px] sm:text-xs text-slate-500">Horas y costes mensuales de cada trabajador (Enero a Diciembre)</p>
             </div>
-            <button onclick="exportarTablaCSV('tablaMatrizJornales', 'Resumen_Mensual_Jornales.csv')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 transition">
-              Descargar CSV
-            </button>
           </div>
 
           <div class="overflow-x-auto mt-3">
@@ -819,50 +787,6 @@
       <span>Menú</span>
     </button>
   </div>
-
-  <!-- ================= MODAL CONFIGURACIÓN SUPABASE ================= -->
-  <dialog id="modalSupabase" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
-    <div class="bg-white rounded-2xl overflow-hidden">
-      <div class="bg-emerald-800 text-white px-5 py-4 flex items-center justify-between">
-        <div class="flex items-center space-x-2">
-          <span class="text-xl">⚡</span>
-          <div>
-            <h3 class="font-bold text-sm">Conectar con Supabase (Nube)</h3>
-            <p class="text-[10px] text-emerald-200">Permite usar la web online en GitHub Pages y en cualquier celular</p>
-          </div>
-        </div>
-        <button onclick="cerrarDialog('modalSupabase')" class="text-white/80 hover:text-white text-lg font-bold">&times;</button>
-      </div>
-      <form id="formSupabase" onsubmit="guardarConfigSupabase(event)" class="p-5 space-y-3.5 text-xs">
-        <p class="text-slate-600 text-[11px] leading-relaxed">
-          Pega aquí las credenciales de tu proyecto de Supabase (las encuentras en <strong>Project Settings &gt; API</strong>):
-        </p>
-
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Project URL *</label>
-          <input type="url" id="sbUrl" placeholder="https://xyzcompany.supabase.co" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]">
-        </div>
-
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Anon / Public Key *</label>
-          <input type="text" id="sbKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]">
-        </div>
-
-        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
-          <p class="font-bold text-slate-800">¿Ya ejecutaste el script SQL en Supabase?</p>
-          <p>Encuentra el archivo <code>supabase_schema.sql</code> en tu proyecto, cópialo y pégalo en el <strong>SQL Editor</strong> de Supabase para crear todas las tablas automáticamente.</p>
-        </div>
-
-        <div class="pt-2 flex justify-between items-center border-t">
-          <button type="button" onclick="desconectarSupabase()" class="text-rose-600 hover:text-rose-800 text-[11px] font-semibold">Usar SQLite Local</button>
-          <div class="flex space-x-2">
-            <button type="button" onclick="cerrarDialog('modalSupabase')" class="px-3.5 py-1.5 border rounded-lg text-slate-600">Cerrar</button>
-            <button type="submit" class="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow">Guardar y Conectar</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  </dialog>
 
   <!-- ================= MODALES DE REGISTRO ================= -->
 
