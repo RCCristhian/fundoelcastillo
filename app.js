@@ -495,20 +495,24 @@ async function cargarVariedades() {
   const tbody = document.getElementById("adminVariedadesBody");
   if (tbody) {
     tbody.innerHTML = "";
-    res.data.forEach(v => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="py-2 px-3 font-bold text-slate-800">${v.nombre}</td>
-        <td class="py-2 px-2 font-semibold text-slate-700">${v.num_arboles || 0}</td>
-        <td class="py-2 px-2">${v.anio_plantacion || '-'}</td>
-        <td class="py-2 px-2">${v.hectareas} Ha</td>
-        <td class="py-2 px-2 text-center">
-          <button onclick="abrirModalEditarVariedad(${v.id})" class="text-blue-600 hover:text-blue-800 p-1 mr-1" title="Editar">✏️</button>
-          <button onclick="dataDelete('variedades', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
+    if (res.data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 italic">No hay cultivos registrados. Agrega tu primer cultivo con el botón "+ Cultivo".</td></tr>`;
+    } else {
+      res.data.forEach(v => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="py-2 px-3 font-bold text-slate-800">${v.nombre}</td>
+          <td class="py-2 px-2 font-semibold text-slate-700">${v.num_arboles || 0}</td>
+          <td class="py-2 px-2">${v.anio_plantacion || '-'}</td>
+          <td class="py-2 px-2">${v.hectareas} Ha</td>
+          <td class="py-2 px-2 text-center">
+            <button onclick="abrirModalEditarVariedad(${v.id})" class="text-blue-600 hover:text-blue-800 p-1 mr-1" title="Editar">✏️</button>
+            <button onclick="dataDelete('variedades', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
   }
 }
 
@@ -957,6 +961,15 @@ function calcularYRenderizarDashboard() {
     sbArb.textContent = totalArboles > 0 ? `${formatNum(totalArboles, 0)} plantas` : `0 plantas (Sin registrar)`;
   }
 
+  // Actualizar Cultivos en el Menú Lateral dinámicamente
+  const sbCultivos = document.getElementById("sbListaCultivos");
+  if (sbCultivos) {
+    const nombresEspecies = Array.from(new Set(variedades.map(v => v.especie || v.nombre).filter(Boolean)));
+    const txtCultivos = nombresEspecies.length > 0 ? nombresEspecies.join(", ") : "Sin registrar";
+    sbCultivos.textContent = txtCultivos;
+    sbCultivos.title = txtCultivos;
+  }
+
   // Calcular tabla P&L por Variedad
   const resumenVariedades = variedades.map(v => {
     const vid = v.id;
@@ -1132,6 +1145,11 @@ function renderDashboardVariedadesMini(variedades) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
+  if (variedades.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-400 italic">No hay cultivos registrados aún. Haz clic en "Gestión de Cultivos" o en "+ Cultivo" para agregar.</td></tr>`;
+    return;
+  }
+
   variedades.forEach(v => {
     const netoColor = v.resultado_neto >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold";
     const tr = document.createElement("tr");
@@ -1155,6 +1173,12 @@ function renderTablaResumenEspecies(variedades) {
   if (!tbody || !tfoot) return;
 
   tbody.innerHTML = "";
+
+  if (variedades.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="12" class="py-8 text-center text-slate-400 italic">No hay especies registradas. Agrega tus variedades en el menú "Gestión de Cultivos y Parcelas" para comenzar.</td></tr>`;
+    tfoot.innerHTML = "";
+    return;
+  }
 
   let sumArboles = 0;
   let sumHa = 0;
@@ -1669,8 +1693,18 @@ async function guardarVariedad(e) {
     existente = globalData.variedades.find(v => v.nombre.trim().toUpperCase() === nombre);
   }
 
+  // Si no se encontró localmente pero existe en Supabase por nombre, buscarlo para evitar error de clave duplicada
+  if (!existente && supabaseClient) {
+    try {
+      const { data: found } = await supabaseClient.from("variedades").select("id").ilike("nombre", nombre).limit(1);
+      if (found && found.length > 0) {
+        existente = found[0];
+      }
+    } catch (e) {}
+  }
+
   if (existente) {
-    // Si ya existe (como PALTA HASS), la actualizamos directamente con los nuevos datos
+    // Si ya existe, lo actualizamos directamente
     const ok = await dataUpdate("variedades", existente.id, data);
     if (ok) {
       Object.assign(existente, data);
@@ -1699,7 +1733,81 @@ async function guardarVariedad(e) {
     await cargarVariedades();
     calcularYRenderizarDashboard();
   } else {
+    // Si falló por duplicado de nombre en Supabase, actualizarlo
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from("variedades").update(data).ilike("nombre", nombre);
+        cerrarDialog("modalVariedad");
+        document.getElementById("formVariedad").reset();
+        if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
+        mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
+        await cargarVariedades();
+        calcularYRenderizarDashboard();
+        return;
+      } catch (err) {}
+    }
     alert("Hubo un detalle al guardar el cultivo. Si ya existe un cultivo con este nombre, puedes editarlo.");
+  }
+}
+
+// ================= LIMPIEZA COMPLETA DE BASE DE DATOS (EMPEZAR DE 0) =================
+async function confirmarLimpiarBaseDeDatos() {
+  const confirmacion = confirm(
+    "⚠️ ¿DESEAS LIMPIAR LA BASE DE DATOS Y EMPEZAR DE CERO?\n\n" +
+    "• Se borrarán todos los cultivos y variedades registradas.\n" +
+    "• Se borrarán las ventas, tratamientos, gastos y jornales.\n" +
+    "• El menú de cultivos quedará limpio para que agregues tus propias especies desde 0.\n\n" +
+    "¿Confirmas que deseas reiniciar la base de datos?"
+  );
+
+  if (!confirmacion) return;
+
+  mostrarToast("Limpiando base de datos...", "🧹");
+
+  try {
+    // 1. Si Supabase está conectado, borrar datos de tablas transaccionales y variedades
+    if (supabaseClient) {
+      const tablas = [
+        "ventas",
+        "tratamientos",
+        "gastos_especificos",
+        "gastos_generales",
+        "jornales",
+        "compras_productos",
+        "variedades"
+      ];
+      for (const t of tablas) {
+        try {
+          await supabaseClient.from(t).delete().neq("id", 0);
+        } catch (err) {
+          console.warn(`Error limpiando tabla ${t} en Supabase:`, err);
+        }
+      }
+    }
+
+    // 2. Limpiar en backend local SQLite si existe
+    try {
+      await fetch("/api/variedades/limpiar-todo", { method: "POST" });
+    } catch (e) {}
+
+    // 3. Resetear memoria local
+    localStorage.removeItem("fundo_arboles_custom");
+    localStorage.removeItem("fundo_arboles_reales_iniciado");
+
+    globalData.variedades = [];
+    globalData.ventas = [];
+    globalData.tratamientos = [];
+    globalData.gastosEspecificos = [];
+    globalData.gastosGenerales = [];
+    globalData.jornales = [];
+    globalData.compras = [];
+
+    // 4. Recargar vista limpia
+    await cargarTodosLosDatos();
+    mostrarToast("¡Base de datos limpia! Lista para agregar tus especies desde cero.", "✨");
+  } catch (err) {
+    console.error("Error al limpiar base de datos:", err);
+    mostrarToast("Error al limpiar: " + err.message, "❌");
   }
 }
 

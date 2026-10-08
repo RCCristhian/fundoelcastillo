@@ -97,7 +97,7 @@
         </div>
         <div class="flex justify-between items-center py-0.5">
           <span class="text-slate-400">Cultivos:</span>
-          <span class="font-semibold text-white">Palta, Plátano, Frutales</span>
+          <span class="font-semibold text-white truncate max-w-[140px]" id="sbListaCultivos" title="Cultivos">Sin registrar</span>
         </div>
         <div class="flex justify-between items-center py-0.5">
           <span class="text-slate-400">Plantas/Árboles:</span>
@@ -208,6 +208,10 @@
         </button>
         <button onclick="actualizarDatos()" class="p-2 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition" title="Refrescar datos">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+        <button onclick="confirmarLimpiarBaseDeDatos()" class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-2 rounded-xl border border-rose-200 transition flex items-center gap-1 shadow-2xs" title="Limpiar todos los datos para empezar de 0">
+          <span>🧹</span>
+          <span class="hidden sm:inline">Limpiar Datos</span>
         </button>
       </div>
     </header>
@@ -777,11 +781,16 @@
             <div class="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <h3 class="text-sm sm:text-base font-bold text-slate-900">Cultivos y Variedades</h3>
-                <p class="text-[11px] text-slate-400">Palta Fuerte 1 y 2, Hass, Plátano y Frutales</p>
+                <p class="text-[11px] text-slate-400">Especies, variedades y distribución de árboles</p>
               </div>
-              <button onclick="abrirModalVariedad()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition">
-                + Cultivo
-              </button>
+              <div class="flex items-center gap-2">
+                <button onclick="confirmarLimpiarBaseDeDatos()" class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold px-2.5 py-1.5 rounded-lg border border-rose-200 transition" title="Limpiar y empezar desde cero">
+                  🧹 Empezar de 0
+                </button>
+                <button onclick="abrirModalVariedad()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition">
+                  + Cultivo
+                </button>
+              </div>
             </div>
             <div class="overflow-x-auto mt-3">
               <table class="w-full text-left text-xs text-slate-700">

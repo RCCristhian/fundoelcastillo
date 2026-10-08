@@ -205,28 +205,14 @@ VALUES
     ('Lote 2 (1 Ha)', 1.0, 'Alquilado', 'Propietario 2', 'Arriendo de 1 hectárea')
 ON CONFLICT DO NOTHING;
 
--- 2. Variedades y Árboles (Plantas iniciales en 0 por definir por el usuario)
-INSERT INTO variedades (nombre, especie, num_arboles, anio_plantacion, hectareas, notas)
-VALUES
-    ('PALTA FUERTE 1', 'Palta Fuerte', 0, 2009, 0.4, 'Plantación año 2009 en alta producción'),
-    ('PALTA FUERTE 2', 'Palta Fuerte', 0, 2023, 0.6, 'Plantación año 2023 en desarrollo'),
-    ('PALTA HASS', 'Palta Hass', 0, 2010, 2.0, '2 hectáreas de Palta Hass'),
-    ('PLATANO', 'Plátano', 0, NULL, 1.0, '1 hectárea de cultivo de plátano'),
-    ('FRUTALES VARIOS', 'Frutales Varios', 0, NULL, 0.2, 'Cítricos y frutales diversos')
-ON CONFLICT (nombre) DO NOTHING;
+-- ==============================================================================
+-- COMANDO PARA LIMPIAR TODA LA BASE DE DATOS Y EMPEZAR DE CERO:
+-- Ejecuta esta línea si deseas vaciar todos los datos de prueba y empezar de 0:
+-- TRUNCATE TABLE ventas, tratamientos, gastos_especificos, gastos_generales, jornales, compras_productos, variedades CASCADE;
+-- ==============================================================================
 
--- 3. Trabajadores iniciales
-INSERT INTO trabajadores (nombre, rol, costo_hora_defecto)
-VALUES
-    ('Mauro Robles', 'Jornalero / Operador', 10.0),
-    ('Kike', 'Jornalero / Poda y Riego', 10.0),
-    ('Trabajador de Apoyo', 'Jornalero Temporal', 10.0)
-ON CONFLICT (nombre) DO NOTHING;
-
--- 4. Registro histórico de gasto general (del Excel: Movimiento de tierra a caballo S/. 220)
-INSERT INTO gastos_generales (fecha, concepto, total, empresa, categoria, notas)
-VALUES ('2026-03-18', 'MOVIMIENTO DE TIERRA A CABALLO', 220.0, 'Servicio Local', 'Preparación de Suelos', 'Registro inicial migrado de plantilla Excel')
-ON CONFLICT DO NOTHING;
+-- 2. Variedades: Inician completamente en blanco para que el usuario ingrese sus cultivos reales
+-- (No se insertan variedades de prueba)
 
 -- 5. Catálogo de 45 productos fitosanitarios y fertilizantes
 INSERT INTO productos (nombre, categoria, unidad, stock_anterior, stock_actual, precio_referencial)

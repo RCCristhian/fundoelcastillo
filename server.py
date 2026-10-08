@@ -235,8 +235,21 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
         cursor = conn.cursor()
 
         try:
+            # 0. Limpiar todo para empezar de 0
+            if path == "/api/variedades/limpiar-todo":
+                cursor.execute("DELETE FROM ventas")
+                cursor.execute("DELETE FROM tratamientos")
+                cursor.execute("DELETE FROM gastos_especificos")
+                cursor.execute("DELETE FROM gastos_generales")
+                cursor.execute("DELETE FROM jornales")
+                cursor.execute("DELETE FROM compras_productos")
+                cursor.execute("DELETE FROM variedades")
+                conn.commit()
+                self._send_json({"success": True, "message": "Base de datos limpia"})
+                return
+
             # 1. Nueva Variedad
-            if path == "/api/variedades":
+            elif path == "/api/variedades":
                 cursor.execute("""
                 INSERT INTO variedades (nombre, especie, num_arboles, anio_plantacion, hectareas, parcela_id, notas)
                 VALUES (?, ?, ?, ?, ?, ?, ?)

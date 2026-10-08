@@ -211,19 +211,8 @@ def init_db():
             ("Lote Alquilado 2 (1 Ha)", 1.0, "Alquilado", "Propietario 2", "Arriendo agrícola de 1 hectárea")
         ])
 
+    # Variedades inician vacías para que el usuario ingrese sus cultivos reales desde cero
     cursor.execute("SELECT COUNT(*) FROM variedades")
-    if cursor.fetchone()[0] == 0:
-        # Palta fuerte 1 (140, 2009), Palta fuerte 2 (260, 2023), Palta Hass (600, 2010), Plátano (300), Frutales Varios
-        cursor.executemany("""
-        INSERT INTO variedades (nombre, especie, num_arboles, anio_plantacion, hectareas, notas)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, [
-            ("PALTA FUERTE 1", "Palta Fuerte", 0, 2009, 0.4, "Plantación año 2009 en producción alta"),
-            ("PALTA FUERTE 2", "Palta Fuerte", 0, 2023, 0.6, "Plantación año 2023 en desarrollo"),
-            ("PALTA HASS", "Palta Hass", 0, 2010, 2.0, "2 hectáreas de Palta Hass"),
-            ("PLATANO", "Plátano", 0, None, 1.0, "1 hectárea con cultivo de plátano"),
-            ("FRUTALES VARIOS", "Frutales Varios", 0, None, 0.2, "Cítricos y frutales diversos")
-        ])
 
     cursor.execute("SELECT COUNT(*) FROM trabajadores")
     if cursor.fetchone()[0] == 0:
