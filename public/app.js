@@ -303,7 +303,18 @@ async function cargarCampanas() {
     const custom = JSON.parse(localStorage.getItem("fundo_campanas_custom") || "[]");
     campanas = [...fallback, ...custom];
   }
+  // Ordenar por año más reciente primero (ej. 2026, luego 2025...)
+  campanas.sort((a, b) => Number(b.anio) - Number(a.anio));
   globalData.campanas = campanas;
+
+  // Asegurar que por defecto siempre esté seleccionada la campaña más reciente (ej. 2026)
+  const guardada = localStorage.getItem("fundo_campana_activa");
+  if (!guardada || (!campanas.some(c => String(c.anio) === String(guardada)) && guardada !== "todas")) {
+    campanaActiva = campanas.length > 0 ? String(campanas[0].anio) : "2026";
+    localStorage.setItem("fundo_campana_activa", campanaActiva);
+  } else {
+    campanaActiva = guardada;
+  }
 
   const select = document.getElementById("selectCampana");
   if (select) {
@@ -999,11 +1010,31 @@ function calcularYRenderizarDashboard() {
 
   // Actualizar Cultivos en el Menú Lateral dinámicamente
   const sbCultivos = document.getElementById("sbListaCultivos");
+  const nombresEspecies = Array.from(new Set(variedades.map(v => v.especie || v.nombre).filter(Boolean)));
+  const txtCultivos = nombresEspecies.length > 0 ? nombresEspecies.join(", ") : "Sin registrar";
   if (sbCultivos) {
-    const nombresEspecies = Array.from(new Set(variedades.map(v => v.especie || v.nombre).filter(Boolean)));
-    const txtCultivos = nombresEspecies.length > 0 ? nombresEspecies.join(", ") : "Sin registrar";
     sbCultivos.textContent = txtCultivos;
     sbCultivos.title = txtCultivos;
+  }
+
+  // Actualizar Banner de Cultivos en el Dashboard
+  const dashBannerEsp = document.getElementById("dashBannerEspecies");
+  if (dashBannerEsp) {
+    dashBannerEsp.textContent = nombresEspecies.length > 0 ? nombresEspecies.join(", ") : "Sin cultivos registrados";
+  }
+
+  const dashBannerDesc = document.getElementById("dashBannerDescripcion");
+  if (dashBannerDesc) {
+    if (nombresEspecies.length > 0) {
+      dashBannerDesc.textContent = `Cultivos activos registrados: ${nombresEspecies.join(", ")}. Cada variedad mantiene su control de ingresos, tratamientos y jornales para calcular el margen neto por árbol y hectárea.`;
+    } else {
+      dashBannerDesc.textContent = "Registra tus especies y variedades en el menú de cultivos para comenzar el cálculo integral de rendimiento y rentabilidad.";
+    }
+  }
+
+  const dashBannerBadge = document.getElementById("dashBannerBadge");
+  if (dashBannerBadge) {
+    dashBannerBadge.textContent = `🌱 Fundo El Castillo • ${haTexto}`;
   }
 
   // Calcular tabla P&L por Variedad

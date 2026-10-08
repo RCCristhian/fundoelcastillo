@@ -171,47 +171,40 @@
   <main class="flex-1 flex flex-col min-w-0 bg-slate-100/60 overflow-y-auto min-h-screen">
     
     <!-- Topbar Header Móvil y Desktop -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-6 py-3.5 flex items-center justify-between shadow-xs">
-      <div class="flex items-center space-x-3">
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-20 px-3 sm:px-6 py-2 sm:py-3.5 flex items-center justify-between shadow-xs gap-2 min-w-0">
+      <div class="flex items-center space-x-2 min-w-0 shrink">
         <!-- Botón menú hamburguesa visible en celulares -->
-        <button onclick="toggleMobileMenu(true)" class="md:hidden text-slate-700 hover:text-slate-900 p-1.5 -ml-1 rounded-lg bg-slate-100 focus:outline-none">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <button onclick="toggleMobileMenu(true)" class="md:hidden text-slate-700 hover:text-slate-900 p-1.5 -ml-1 rounded-lg bg-slate-100 focus:outline-none shrink-0" aria-label="Abrir menú">
+          <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
-        <div>
-          <div class="flex items-center gap-2">
-            <h2 id="pageTitle" class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Panel General</h2>
-            <span class="md:hidden text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">Fundo El Castillo</span>
-          </div>
-          <p id="pageSubtitle" class="text-[11px] sm:text-xs text-slate-500 truncate max-w-[200px] sm:max-w-md">Resumen integral de producción y finanzas por cultivo</p>
+        <div class="min-w-0">
+          <h2 id="pageTitle" class="text-sm sm:text-lg font-bold text-slate-900 leading-tight truncate">Panel General</h2>
+          <p id="pageSubtitle" class="text-[10px] sm:text-xs text-slate-500 truncate hidden sm:block">Resumen integral de producción y finanzas por cultivo</p>
         </div>
       </div>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
         <!-- Selector de Campaña / Escenario -->
         <div class="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-          <select id="selectCampana" onchange="cambiarCampana(this.value)" class="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1.5 focus:outline-none cursor-pointer">
+          <select id="selectCampana" onchange="cambiarCampana(this.value)" class="bg-transparent text-slate-800 font-bold text-xs px-2 py-1 focus:outline-none cursor-pointer max-w-[135px] sm:max-w-none">
             <option value="2026" selected>🌾 Campaña 2026</option>
             <option value="2025">🌾 Campaña 2025</option>
             <option value="todas">📊 Todas las Campañas (Histórico)</option>
           </select>
-          <button onclick="abrirModalNuevaCampana()" class="bg-white hover:bg-slate-50 text-emerald-700 font-bold text-xs p-1.5 rounded-lg shadow-2xs border border-slate-200 transition" title="Crear Nueva Campaña">
+          <button onclick="abrirModalNuevaCampana()" class="bg-white hover:bg-slate-50 text-emerald-700 font-bold text-xs p-1 rounded-lg shadow-2xs border border-slate-200 transition" title="Crear Nueva Campaña">
             ➕
           </button>
-          <button onclick="borrarCampanaSeleccionada()" class="bg-white hover:bg-rose-50 text-rose-600 font-bold text-xs p-1.5 rounded-lg shadow-2xs border border-slate-200 transition ml-0.5" title="Eliminar Campaña Seleccionada">
+          <button onclick="borrarCampanaSeleccionada()" class="hidden sm:inline-flex bg-white hover:bg-rose-50 text-rose-600 font-bold text-xs p-1 rounded-lg shadow-2xs border border-slate-200 transition ml-0.5" title="Eliminar Campaña Seleccionada">
             🗑️
           </button>
         </div>
 
-        <button onclick="abrirModalRegistroRapido()" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center space-x-1.5 transition">
+        <button onclick="abrirModalRegistroRapido()" class="hidden sm:flex bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-sm items-center space-x-1.5 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          <span class="hidden sm:inline">+ Anotar</span>
+          <span>+ Anotar</span>
         </button>
-        <button onclick="actualizarDatos()" class="p-2 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition" title="Refrescar datos">
+        <button onclick="actualizarDatos()" class="p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition" title="Refrescar datos">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-        </button>
-        <button onclick="confirmarLimpiarBaseDeDatos()" class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-2 rounded-xl border border-rose-200 transition flex items-center gap-1 shadow-2xs" title="Limpiar todos los datos para empezar de 0">
-          <span>🧹</span>
-          <span class="hidden sm:inline">Limpiar Datos</span>
         </button>
       </div>
     </header>
@@ -288,12 +281,12 @@
         <div class="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 rounded-2xl p-4 sm:p-6 text-white shadow-md relative overflow-hidden">
           <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div class="space-y-1">
-              <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" id="dashBannerBadge">
                 🌱 Fundo El Castillo • 3 Hectáreas
               </div>
-              <h3 class="text-base sm:text-lg font-bold tracking-tight">Palta Fuerte, Palta Hass, Plátano y Frutales</h3>
-              <p class="text-[11px] sm:text-xs text-slate-300 max-w-2xl leading-relaxed">
-                2 Ha arrendadas a Propietario 1 y 1 Ha a Propietario 2. Cada cultivo mantiene su propia cuenta de ingresos, fitosanitarios y jornales para calcular el margen neto por árbol y hectárea.
+              <h3 class="text-base sm:text-lg font-bold tracking-tight text-white" id="dashBannerEspecies">Sin cultivos registrados</h3>
+              <p class="text-[11px] sm:text-xs text-slate-300 max-w-2xl leading-relaxed" id="dashBannerDescripcion">
+                Registra tus especies en el menú de cultivos para calcular ingresos, fitosanitarios, jornales y rentabilidad neta por árbol.
               </p>
             </div>
             <div class="flex items-center gap-2 pt-1 md:pt-0">
@@ -1491,6 +1484,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261008_5"></script>
+  <script src="app.js?v=20261008_6"></script>
 </body>
 </html>
