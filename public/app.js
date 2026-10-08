@@ -1670,10 +1670,11 @@ async function guardarVariedad(e) {
   const especie = document.getElementById("varEspecie").value.trim() || nombre;
   const num_arboles = parseInt(document.getElementById("varNumArboles").value) || 0;
   const anio_plantacion = parseInt(document.getElementById("varAnio").value) || null;
-  const hectareas = parseFloat(document.getElementById("varHectareas").value) || 0;
+  const haRaw = document.getElementById("varHectareas")?.value || "0";
+  const hectareas = parseFloat(String(haRaw).replace(',', '.')) || 0;
 
   if (!nombre) {
-    alert("Por favor ingresa el nombre de la variedad o cultivo.");
+    mostrarToast("Por favor ingresa el nombre de la variedad o cultivo.", "⚠️");
     return;
   }
 
@@ -1685,7 +1686,7 @@ async function guardarVariedad(e) {
     hectareas
   };
 
-  // Buscar si la variedad ya existe (por ID o por Nombre como PALTA HASS)
+  // Buscar si la variedad ya existe (por ID o por Nombre como HASS o PALTA HASS)
   let existente = null;
   if (editId) {
     existente = globalData.variedades.find(v => String(v.id) === String(editId));
@@ -1693,7 +1694,7 @@ async function guardarVariedad(e) {
     existente = globalData.variedades.find(v => v.nombre.trim().toUpperCase() === nombre);
   }
 
-  // Si no se encontró localmente pero existe en Supabase por nombre, buscarlo para evitar error de clave duplicada
+  // Si no se encontró en memoria local pero existe en Supabase por nombre
   if (!existente && supabaseClient) {
     try {
       const { data: found } = await supabaseClient.from("variedades").select("id").ilike("nombre", nombre).limit(1);
@@ -1716,7 +1717,7 @@ async function guardarVariedad(e) {
       cerrarDialog("modalVariedad");
       document.getElementById("formVariedad").reset();
       if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
-      mostrarToast(`Cultivo ${nombre} actualizado correctamente`, "🥑");
+      mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
       await cargarVariedades();
       calcularYRenderizarDashboard();
       return;
@@ -1733,20 +1734,22 @@ async function guardarVariedad(e) {
     await cargarVariedades();
     calcularYRenderizarDashboard();
   } else {
-    // Si falló por duplicado de nombre en Supabase, actualizarlo
+    // Si falló por duplicado de nombre en Supabase, actualizarlo de inmediato
     if (supabaseClient) {
       try {
-        await supabaseClient.from("variedades").update(data).ilike("nombre", nombre);
-        cerrarDialog("modalVariedad");
-        document.getElementById("formVariedad").reset();
-        if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
-        mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
-        await cargarVariedades();
-        calcularYRenderizarDashboard();
-        return;
+        const { error: updErr } = await supabaseClient.from("variedades").update(data).ilike("nombre", nombre);
+        if (!updErr) {
+          cerrarDialog("modalVariedad");
+          document.getElementById("formVariedad").reset();
+          if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
+          mostrarToast(`Cultivo ${nombre} guardado correctamente`, "🥑");
+          await cargarVariedades();
+          calcularYRenderizarDashboard();
+          return;
+        }
       } catch (err) {}
     }
-    alert("Hubo un detalle al guardar el cultivo. Si ya existe un cultivo con este nombre, puedes editarlo.");
+    mostrarToast(`No se pudo guardar el cultivo ${nombre}. Intenta nuevamente.`, "❌");
   }
 }
 
