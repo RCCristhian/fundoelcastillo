@@ -25,7 +25,7 @@ Dado que ya tienes tu proyecto creado en Supabase:
 Ya hemos inicializado Git y creado el primer commit en tu máquina. Ahora solo debes vincularlo a tu cuenta de GitHub:
 
 1. Entra a tu cuenta en [GitHub.com](https://github.com) y haz clic en **New repository** (o el botón verde `+` arriba a la derecha).
-2. Ponle nombre al repositorio (por ejemplo: `fundo-el-castillo`).
+2. Ponle nombre al repositorio (por ejemplo: `fundoelcastillo`).
 3. Déjalo en **Public** (para que GitHub Pages sea gratuito) y **NO marques** *"Initialize this repository with a README"* (ya tenemos todo listo).
 4. Haz clic en **Create repository**.
 5. En tu Mac, abre la terminal en esta carpeta y corre los siguientes comandos (reemplazando `TU_USUARIO` y `TU_REPOSITORIO` por los tuyos):
