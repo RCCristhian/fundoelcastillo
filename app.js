@@ -1,3 +1,7 @@
+// Variables Globales
+let moneda = localStorage.getItem("agro_moneda") || "S/.";
+let currentView = "dashboard";
+
 // Conexión Directa Automática a Supabase Cloud - Fundo El Castillo
 const SUPABASE_URL = "https://myybakusxjpkvbrrcvmy.supabase.co";
 const SUPABASE_KEY = "sb_publishable_m7m0tA0rjzV9lte44czjOA_Sp_G9fG2";
