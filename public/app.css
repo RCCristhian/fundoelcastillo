@@ -1,0 +1,95 @@
+/* Estilos complementarios para Fundo El Castillo */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #f8fafc;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Items de navegación */
+.nav-item {
+  color: #94a3b8;
+}
+.nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+}
+.nav-item.active {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  font-weight: 700;
+  border-left: 3px solid #22c55e;
+}
+
+/* Diálogos HTML5 nativos - Optimizados para pantallas móviles */
+dialog {
+  border: none;
+  margin: auto;
+}
+dialog::backdrop {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Animaciones suaves para Toast */
+#toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Tablas con celdas compactas y legibles */
+table th, table td {
+  white-space: nowrap;
+}
+
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-paid {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.badge-pending {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+/* Card hover micro-interaction */
+.shadow-xs {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 3px 1px rgba(0, 0, 0, 0.02);
+}
+
+/* Botones táctiles optimizados para celular (mínimo 44px de área de toque) */
+@media (max-width: 768px) {
+  button, input, select {
+    font-size: 14px !important;
+  }
+}

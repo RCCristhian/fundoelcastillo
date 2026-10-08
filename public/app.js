@@ -1,0 +1,1462 @@
+// Fundo El Castillo - Lógica Frontend Híbrida (Supabase Cloud + Local SQLite)
+let moneda = localStorage.getItem("agro_moneda") || "S/.";
+let currentView = "dashboard";
+
+// Configuración Supabase
+let supabaseUrl = localStorage.getItem("fundo_supabase_url") || "";
+let supabaseKey = localStorage.getItem("fundo_supabase_key") || "";
+let supabaseClient = null;
+
+// Inicializar cliente Supabase si existen credenciales
+function initSupabaseClient() {
+  if (supabaseUrl && supabaseKey && window.supabase) {
+    try {
+      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+      actualizarIndicadorDB(true);
+      return true;
+    } catch (e) {
+      console.error("Error al inicializar Supabase:", e);
+      actualizarIndicadorDB(false);
+    }
+  } else {
+    actualizarIndicadorDB(false);
+  }
+  supabaseClient = null;
+  return false;
+}
+
+function actualizarIndicadorDB(isCloud) {
+  const badge = document.getElementById("dbStatusBadge");
+  const text = document.getElementById("dbStatusText");
+  if (!badge || !text) return;
+
+  if (isCloud) {
+    badge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition";
+    text.textContent = "Supabase Nube";
+  } else {
+    badge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition";
+    text.textContent = "SQLite Local";
+  }
+}
+
+// Cache de datos
+let globalData = {
+  variedades: [],
+  parcelas: [],
+  productos: [],
+  trabajadores: [],
+  ventas: [],
+  gastosEspecificos: [],
+  gastosGenerales: [],
+  jornales: [],
+  tratamientos: [],
+  compras: [],
+  dashboard: null
+};
+
+// Instancias de Chart.js
+let chartEspeciesInst = null;
+let chartGastosInst = null;
+
+// Inicialización al cargar la página
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("monedaSelect").value = moneda;
+  actualizarMonedaLabels();
+  initFechasHoy();
+  initSupabaseClient();
+  cargarTodosLosDatos();
+});
+
+function toggleMobileMenu(open) {
+  const sidebar = document.getElementById("sidebar");
+  const overlay = document.getElementById("mobileOverlay");
+  if (!sidebar || !overlay) return;
+
+  if (open) {
+    sidebar.classList.remove("-translate-x-full");
+    overlay.classList.remove("hidden");
+  } else {
+    sidebar.classList.add("-translate-x-full");
+    overlay.classList.add("hidden");
+  }
+}
+
+function initFechasHoy() {
+  const hoy = new Date().toISOString().split("T")[0];
+  ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = hoy;
+  });
+}
+
+function cambiarMoneda(nuevaMoneda) {
+  moneda = nuevaMoneda;
+  localStorage.setItem("agro_moneda", moneda);
+  actualizarMonedaLabels();
+  cargarTodosLosDatos();
+}
+
+function actualizarMonedaLabels() {
+  document.querySelectorAll(".monedaLabel").forEach(el => el.textContent = moneda);
+}
+
+function formatMoney(amount) {
+  if (amount === null || amount === undefined || isNaN(amount)) return `${moneda} 0.00`;
+  return `${moneda} ${Number(amount).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatNum(num, decimals = 1) {
+  if (num === null || num === undefined || isNaN(num)) return "-";
+  return Number(num).toLocaleString('es-PE', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+// ================= NAVEGACIÓN =================
+function navigate(viewName) {
+  currentView = viewName;
+  
+  document.querySelectorAll("main > div > section").forEach(sec => sec.classList.add("hidden"));
+  
+  const target = document.getElementById(`view-${viewName}`);
+  if (target) target.classList.remove("hidden");
+
+  document.querySelectorAll(".nav-item").forEach(item => {
+    if (item.getAttribute("data-view") === viewName) {
+      item.classList.add("active");
+    } else {
+      item.classList.remove("active");
+    }
+  });
+
+  const titles = {
+    "dashboard": ["Panel General", "Resumen integral de producción y finanzas por cultivo"],
+    "resumen-especies": ["Rentabilidad por Especie", "P&L Agrícola: Ingresos vs Costos directos y prorrateados"],
+    "ventas": ["Ventas y Cosecha", "Control de cosechas vendidas, acopiadores y cobranzas"],
+    "gastos-especificos": ["Gastos Específicos", "Costes directos aplicados a un cultivo particular"],
+    "gastos-generales": ["Gastos Generales y Arriendos", "Mantenimiento del campo, arriendos de las 3 Ha y costos comunes"],
+    "jornales": ["Jornales y Mano de Obra", "Horas trabajadas por jornalero, cultivo asignado y labores realizadas"],
+    "tratamientos": ["Tratamientos y Fitosanitarios", "Aplicaciones de fertilizantes, pesticidas y abonos por variedad"],
+    "insumos": ["Almacén de Insumos y Compras", "Inventario valorizado de productos químicos y compras registradas"],
+    "parcelas-variedades": ["Gestión de Cultivos y Parcelas", "Distribución de las 3 hectáreas, propietarios y árboles plantados"]
+  };
+
+  if (titles[viewName]) {
+    document.getElementById("pageTitle").textContent = titles[viewName][0];
+    document.getElementById("pageSubtitle").textContent = titles[viewName][1];
+  }
+
+  if (viewName === "jornales") {
+    cargarMatrizMensualJornales();
+  }
+}
+
+// ================= CAPA DE DATOS HÍBRIDA (SUPABASE / LOCAL REST) =================
+async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = true) {
+  // 1. Si Supabase está activo
+  if (supabaseClient) {
+    try {
+      let query = supabaseClient.from(table).select(selectQuery);
+      if (orderCol) query = query.order(orderCol, { ascending });
+      const { data, error } = await query;
+      if (error) throw error;
+      return { success: true, data };
+    } catch (e) {
+      console.warn(`Error en Supabase leyendo ${table}, fallback local:`, e);
+    }
+  }
+
+  // 2. Si no hay Supabase o falló, usar API local de Python
+  const endpointMap = {
+    "parcelas": "parcelas",
+    "variedades": "variedades",
+    "productos": "productos",
+    "compras_productos": "compras",
+    "tratamientos": "tratamientos",
+    "ventas": "ventas",
+    "ingresos_financieros": "ingresos-financieros",
+    "gastos_especificos": "gastos-especificos",
+    "gastos_generales": "gastos-generales",
+    "trabajadores": "trabajadores",
+    "jornales": "jornales"
+  };
+
+  const ep = endpointMap[table] || table;
+  try {
+    const res = await fetch(`/api/${ep}`);
+    return await res.json();
+  } catch (err) {
+    return { success: false, data: [] };
+  }
+}
+
+async function dataInsert(table, record) {
+  if (supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient.from(table).insert([record]).select();
+      if (error) throw error;
+      return { success: true, id: data?.[0]?.id };
+    } catch (e) {
+      console.error(`Error Supabase insertando en ${table}:`, e);
+      mostrarToast(`Error en Supabase: ${e.message}`, "❌");
+      return { success: false };
+    }
+  }
+
+  const endpointMap = {
+    "parcelas": "parcelas",
+    "variedades": "variedades",
+    "productos": "productos",
+    "compras_productos": "compras",
+    "tratamientos": "tratamientos",
+    "ventas": "ventas",
+    "ingresos_financieros": "ingresos-financieros",
+    "gastos_especificos": "gastos-especificos",
+    "gastos_generales": "gastos-generales",
+    "trabajadores": "trabajadores",
+    "jornales": "jornales"
+  };
+
+  const ep = endpointMap[table] || table;
+  try {
+    const res = await fetch(`/api/${ep}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(record)
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false };
+  }
+}
+
+async function dataDelete(table, id) {
+  if (!confirm("¿Deseas eliminar este registro?")) return false;
+
+  if (supabaseClient) {
+    try {
+      const { error } = await supabaseClient.from(table).delete().eq("id", id);
+      if (error) throw error;
+      mostrarToast("Registro eliminado de Supabase", "🗑️");
+      actualizarDatos();
+      return true;
+    } catch (e) {
+      console.error(`Error Supabase eliminando en ${table}:`, e);
+      mostrarToast(`Error: ${e.message}`, "❌");
+      return false;
+    }
+  }
+
+  const endpointMap = {
+    "parcelas": "parcelas",
+    "variedades": "variedades",
+    "productos": "productos",
+    "compras_productos": "compras",
+    "tratamientos": "tratamientos",
+    "ventas": "ventas",
+    "ingresos_financieros": "ingresos-financieros",
+    "gastos_especificos": "gastos-especificos",
+    "gastos_generales": "gastos-generales",
+    "trabajadores": "trabajadores",
+    "jornales": "jornales"
+  };
+
+  const ep = endpointMap[table] || table;
+  try {
+    const res = await fetch(`/api/${ep}/${id}`, { method: "DELETE" });
+    const json = await res.json();
+    if (json.success) {
+      mostrarToast("Registro eliminado", "🗑️");
+      actualizarDatos();
+      return true;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  return false;
+}
+
+// ================= CONFIGURACIÓN SUPABASE MODAL =================
+function abrirModalSupabase() {
+  document.getElementById("sbUrl").value = supabaseUrl;
+  document.getElementById("sbKey").value = supabaseKey;
+  document.getElementById("modalSupabase")?.showModal();
+}
+
+function guardarConfigSupabase(e) {
+  e.preventDefault();
+  const url = document.getElementById("sbUrl").value.trim();
+  const key = document.getElementById("sbKey").value.trim();
+
+  if (!url || !key) {
+    alert("Por favor ingresa la URL y la Anon Key de tu proyecto de Supabase");
+    return;
+  }
+
+  localStorage.setItem("fundo_supabase_url", url);
+  localStorage.setItem("fundo_supabase_key", key);
+  supabaseUrl = url;
+  supabaseKey = key;
+
+  initSupabaseClient();
+  cerrarDialog("modalSupabase");
+  mostrarToast("Conectado con Supabase en la nube", "⚡");
+  cargarTodosLosDatos();
+}
+
+function desconectarSupabase() {
+  localStorage.removeItem("fundo_supabase_url");
+  localStorage.removeItem("fundo_supabase_key");
+  supabaseUrl = "";
+  supabaseKey = "";
+  supabaseClient = null;
+  actualizarIndicadorDB(false);
+  cerrarDialog("modalSupabase");
+  mostrarToast("Cambiado a modo local SQLite", "📂");
+  cargarTodosLosDatos();
+}
+
+// ================= CARGA DE DATOS =================
+async function cargarTodosLosDatos() {
+  await Promise.all([
+    cargarVariedades(),
+    cargarParcelas(),
+    cargarProductos(),
+    cargarTrabajadores(),
+    cargarVentas(),
+    cargarGastosEspecificos(),
+    cargarGastosGenerales(),
+    cargarJornales(),
+    cargarTratamientos(),
+    cargarCompras()
+  ]);
+
+  // Si estamos en Supabase, calculamos el dashboard localmente en JS
+  // Si estamos en local, podemos llamar a /api/dashboard o calcularlo
+  calcularYRenderizarDashboard();
+}
+
+async function actualizarDatos() {
+  await cargarTodosLosDatos();
+  mostrarToast("Datos actualizados", "🔄");
+}
+
+// Cargar Tablas
+async function cargarVariedades() {
+  const res = await dataFetch("variedades", "*", "nombre", true);
+  if (!res.success) return;
+  globalData.variedades = res.data;
+
+  const selects = ["ventaVariedadId", "trataVariedadId", "jornalVariedadId", "geVariedadId"];
+  selects.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = "";
+    if (id === "jornalVariedadId" || id === "geVariedadId") {
+      el.innerHTML += `<option value="">-- General / Todo el Campo --</option>`;
+    }
+    res.data.forEach(v => {
+      el.innerHTML += `<option value="${v.id}">${v.nombre} (${v.especie} - ${v.num_arboles || 0} árb.)</option>`;
+    });
+  });
+
+  const tbody = document.getElementById("adminVariedadesBody");
+  if (tbody) {
+    tbody.innerHTML = "";
+    res.data.forEach(v => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="py-2 px-3 font-bold text-slate-800">${v.nombre}</td>
+        <td class="py-2 px-2">${v.num_arboles || '-'}</td>
+        <td class="py-2 px-2">${v.anio_plantacion || '-'}</td>
+        <td class="py-2 px-2">${v.hectareas} Ha</td>
+        <td class="py-2 px-2 text-center">
+          <button onclick="dataDelete('variedades', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+}
+
+async function cargarParcelas() {
+  const res = await dataFetch("parcelas", "*", "id", true);
+  if (!res.success) return;
+  globalData.parcelas = res.data;
+
+  const tbody = document.getElementById("adminParcelasBody");
+  if (tbody) {
+    tbody.innerHTML = "";
+    res.data.forEach(p => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="py-2 px-3 font-bold text-slate-800">${p.nombre}</td>
+        <td class="py-2 px-2">${p.hectareas} Ha</td>
+        <td class="py-2 px-2">${p.propietario || '-'}</td>
+        <td class="py-2 px-2 text-center">
+          <button onclick="dataDelete('parcelas', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+}
+
+async function cargarProductos() {
+  const res = await dataFetch("productos", "*", "nombre", true);
+  if (!res.success) return;
+  globalData.productos = res.data;
+
+  const selects = ["trataProductoId", "compraProductoId"];
+  selects.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = "";
+    res.data.forEach(p => {
+      el.innerHTML += `<option value="${p.id}" data-precio="${p.precio_referencial}" data-stock="${p.stock_actual}">${p.nombre} (Stock: ${p.stock_actual} ${p.unidad})</option>`;
+    });
+  });
+
+  renderTablaInsumos(res.data);
+}
+
+function renderTablaInsumos(productos) {
+  const tbody = document.getElementById("insumosTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  let valorTotalAlmacen = 0;
+
+  productos.forEach(p => {
+    const valor = (p.stock_actual || 0) * (p.precio_referencial || 0);
+    valorTotalAlmacen += valor;
+    const stockClass = p.stock_actual <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2 px-3 font-bold text-slate-800">${p.nombre}</td>
+      <td class="py-2 px-2 text-slate-500">${p.unidad}</td>
+      <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_comprado || 0, 1)}</td>
+      <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_aplicado || 0, 1)}</td>
+      <td class="py-2 px-3 text-right ${stockClass}">${formatNum(p.stock_actual, 1)}</td>
+      <td class="py-2 px-3 text-right text-slate-600">${formatMoney(p.precio_referencial)}</td>
+      <td class="py-2 px-3 text-right font-semibold text-slate-900">${formatMoney(valor)}</td>
+      <td class="py-2 px-2 text-center">
+        <button onclick="dataDelete('productos', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("badgeValorAlmacen").textContent = formatMoney(valorTotalAlmacen);
+}
+
+function filtrarInsumos() {
+  const query = document.getElementById("filtroInsumos").value.toLowerCase();
+  const filtrados = globalData.productos.filter(p => p.nombre.toLowerCase().includes(query));
+  renderTablaInsumos(filtrados);
+}
+
+async function cargarTrabajadores() {
+  const res = await dataFetch("trabajadores", "*", "nombre", true);
+  if (!res.success) return;
+  globalData.trabajadores = res.data;
+
+  const sel = document.getElementById("jornalTrabajadorId");
+  if (sel) {
+    sel.innerHTML = "";
+    res.data.forEach(t => {
+      sel.innerHTML += `<option value="${t.id}" data-costo="${t.costo_hora_defecto}">${t.nombre} (${t.rol})</option>`;
+    });
+  }
+}
+
+function actualizarPrecioHoraTrabajador(trabajadorId) {
+  const t = globalData.trabajadores.find(item => item.id == trabajadorId);
+  if (t) {
+    document.getElementById("jornalPrecioHora").value = t.costo_hora_defecto || 10;
+    calcularTotalJornal();
+  }
+}
+
+async function cargarVentas() {
+  const res = await dataFetch("ventas", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.ventas = res.data;
+  renderTablaVentas(res.data);
+}
+
+function renderTablaVentas(ventas) {
+  const tbody = document.getElementById("ventasTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  document.getElementById("cantVentasBadge").textContent = ventas.length;
+
+  ventas.forEach(v => {
+    const variedad = globalData.variedades.find(item => item.id == v.variedad_id);
+    const varNombre = v.variedad_nombre || variedad?.nombre || "Variedad";
+
+    const estadoBadge = v.cobrado 
+      ? `<span class="badge-status badge-paid">Cobrado</span>`
+      : `<span class="badge-status badge-pending">Por Cobrar</span>`;
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 text-slate-600 font-mono text-[11px]">${v.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-800">${varNombre}</td>
+      <td class="py-2.5 px-3 text-right font-medium text-slate-900">${formatNum(v.kilos, 1)} kg</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(v.precio_kilo)}</td>
+      <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatMoney(v.total)}</td>
+      <td class="py-2.5 px-3 text-slate-700">${v.comprador || '-'}</td>
+      <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${v.nro_boleta || v.nro_factura || '-'}</td>
+      <td class="py-2.5 px-3 text-center">${estadoBadge}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button onclick="dataDelete('ventas', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function filtrarVentas() {
+  const query = document.getElementById("filtroVentas").value.toLowerCase();
+  const filtradas = globalData.ventas.filter(v => {
+    const variedad = globalData.variedades.find(item => item.id == v.variedad_id);
+    const varNombre = (v.variedad_nombre || variedad?.nombre || "").toLowerCase();
+    return varNombre.includes(query) ||
+           (v.comprador && v.comprador.toLowerCase().includes(query)) ||
+           (v.nro_boleta && v.nro_boleta.toLowerCase().includes(query)) ||
+           (v.nro_factura && v.nro_factura.toLowerCase().includes(query));
+  });
+  renderTablaVentas(filtradas);
+}
+
+async function cargarGastosEspecificos() {
+  const res = await dataFetch("gastos_especificos", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.gastosEspecificos = res.data;
+
+  const tbody = document.getElementById("gastosEspecificosTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  res.data.forEach(ge => {
+    const variedad = globalData.variedades.find(item => item.id == ge.variedad_id);
+    const varNombre = ge.variedad_nombre || variedad?.nombre || "Sin Variedad";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${ge.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-800">${varNombre}</td>
+      <td class="py-2.5 px-3 font-medium text-slate-900">${ge.concepto}</td>
+      <td class="py-2.5 px-3 text-right font-black text-rose-700">${formatMoney(ge.total)}</td>
+      <td class="py-2.5 px-3 text-slate-600">${ge.empresa || '-'}</td>
+      <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${ge.nro_factura || '-'}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button onclick="dataDelete('gastos_especificos', ${ge.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function cargarGastosGenerales() {
+  const res = await dataFetch("gastos_generales", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.gastosGenerales = res.data;
+
+  const tbody = document.getElementById("gastosGeneralesTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  res.data.forEach(gg => {
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${gg.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${gg.concepto}</td>
+      <td class="py-2.5 px-3"><span class="badge-status bg-purple-100 text-purple-800">${gg.categoria || 'General'}</span></td>
+      <td class="py-2.5 px-3 text-right font-black text-purple-700">${formatMoney(gg.total)}</td>
+      <td class="py-2.5 px-3 text-slate-600">${gg.empresa || '-'}</td>
+      <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${gg.nro_factura || '-'}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button onclick="dataDelete('gastos_generales', ${gg.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function cargarJornales() {
+  const res = await dataFetch("jornales", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.jornales = res.data;
+
+  const tbody = document.getElementById("jornalesTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  res.data.forEach(j => {
+    const trab = globalData.trabajadores.find(t => t.id == j.trabajador_id);
+    const varItem = globalData.variedades.find(v => v.id == j.variedad_id);
+    const trabNombre = j.trabajador_nombre || trab?.nombre || "Trabajador";
+    const varNombre = j.variedad_nombre || varItem?.nombre || "General / Campo";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${j.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${trabNombre}</td>
+      <td class="py-2.5 px-3 text-slate-700">${varNombre}</td>
+      <td class="py-2.5 px-3 text-right font-semibold text-slate-900">${j.horas} hrs</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(j.precio_hora)}</td>
+      <td class="py-2.5 px-3 text-right font-black text-blue-700">${formatMoney(j.total)}</td>
+      <td class="py-2.5 px-3 text-slate-700 font-medium">${j.labor || '-'}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button onclick="dataDelete('jornales', ${j.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function cargarTratamientos() {
+  const res = await dataFetch("tratamientos", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.tratamientos = res.data;
+
+  const tbody = document.getElementById("tratamientosTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  res.data.forEach(t => {
+    const varItem = globalData.variedades.find(v => v.id == t.variedad_id);
+    const prodItem = globalData.productos.find(p => p.id == t.producto_id);
+    const varNombre = t.variedad_nombre || varItem?.nombre || "Lote";
+    const prodNombre = t.producto_nombre || prodItem?.nombre || "Insumo";
+    const unidad = t.producto_unidad || prodItem?.unidad || "Kg/L";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${t.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${varNombre}</td>
+      <td class="py-2.5 px-3 font-semibold text-teal-800">${prodNombre}</td>
+      <td class="py-2.5 px-3 text-right font-medium">${t.cantidad} ${unidad}</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(t.precio_unitario)}</td>
+      <td class="py-2.5 px-3 text-right font-black text-teal-700">${formatMoney(t.total)}</td>
+      <td class="py-2.5 px-3 text-slate-500">${t.notas || '-'}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button onclick="dataDelete('tratamientos', ${t.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function cargarCompras() {
+  const res = await dataFetch("compras_productos", "*", "fecha", false);
+  if (!res.success) return;
+  globalData.compras = res.data;
+
+  const tbody = document.getElementById("comprasTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  res.data.forEach(c => {
+    const prod = globalData.productos.find(p => p.id == c.producto_id);
+    const prodNombre = c.producto_nombre || prod?.nombre || "Producto";
+    const unidad = c.producto_unidad || prod?.unidad || "Kg/L";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${c.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${prodNombre}</td>
+      <td class="py-2.5 px-2 text-right font-semibold">${c.cantidad} ${unidad}</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(c.precio_unitario)}</td>
+      <td class="py-2.5 px-3 text-right font-black text-cyan-700">${formatMoney(c.total)}</td>
+      <td class="py-2.5 px-3 text-slate-700">${c.proveedor || '-'}</td>
+      <td class="py-2.5 px-3 text-center">${c.pagado ? '<span class="badge-status badge-paid">Pagado</span>' : '<span class="badge-status badge-pending">Pendiente</span>'}</td>
+      <td class="py-2.5 px-2 text-center">
+        <button onclick="dataDelete('compras_productos', ${c.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ================= MOTOR DE CÁLCULO DE DASHBOARD Y RENTABILIDAD =================
+function calcularYRenderizarDashboard() {
+  const ventas = globalData.ventas;
+  const tratamientos = globalData.tratamientos;
+  const especificos = globalData.gastosEspecificos;
+  const generales = globalData.gastosGenerales;
+  const jornales = globalData.jornales;
+  const variedades = globalData.variedades;
+
+  const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+  const totalKilos = ventas.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
+  const totalTratamientos = tratamientos.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
+  const totalEspecificos = especificos.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
+  const totalGenerales = generales.reduce((acc, g) => acc + (Number(g.total) || 0), 0);
+  const totalJornales = jornales.reduce((acc, j) => acc + (Number(j.total) || 0), 0);
+  const totalHoras = jornales.reduce((acc, j) => acc + (Number(j.horas) || 0), 0);
+
+  const totalIngresos = totalVentas;
+  const totalGastos = totalTratamientos + totalEspecificos + totalGenerales + totalJornales;
+  const resultadoNeto = totalIngresos - totalGastos;
+
+  const totalHa = variedades.reduce((acc, v) => acc + (Number(v.hectareas) || 0), 0) || 1.0;
+  const totalArboles = variedades.reduce((acc, v) => acc + (Number(v.num_arboles) || 0), 0);
+
+  // Actualizar KPIs en DOM
+  document.getElementById("kpiIngresos").textContent = formatMoney(totalIngresos);
+  document.getElementById("kpiKilosTotales").textContent = `${formatNum(totalKilos, 0)} Kg`;
+  document.getElementById("kpiGastos").textContent = formatMoney(totalGastos);
+
+  const netoEl = document.getElementById("kpiResultadoNeto");
+  netoEl.textContent = formatMoney(resultadoNeto);
+  if (resultadoNeto >= 0) {
+    netoEl.className = "text-lg sm:text-2xl font-black text-emerald-600 truncate";
+    document.getElementById("kpiMargenSub").textContent = "Margen operativo favorable";
+  } else {
+    netoEl.className = "text-lg sm:text-2xl font-black text-rose-600 truncate";
+    document.getElementById("kpiMargenSub").textContent = "Campaña en fase de inversión";
+  }
+
+  document.getElementById("kpiJornalesMonto").textContent = formatMoney(totalJornales);
+  document.getElementById("kpiTotalHoras").textContent = formatNum(totalHoras, 0);
+
+  document.getElementById("sbTotalHectareas").textContent = `${formatNum(totalHa, 1)} Ha (Alquiladas)`;
+  document.getElementById("sbTotalArboles").textContent = `${formatNum(totalArboles, 0)} plantas`;
+
+  // Calcular tabla P&L por Variedad
+  const resumenVariedades = variedades.map(v => {
+    const vid = v.id;
+    const arboles = Number(v.num_arboles) || 0;
+    const ha = Number(v.hectareas) || 0;
+
+    const vVentas = ventas.filter(item => item.variedad_id == vid);
+    const ingV = vVentas.reduce((a, b) => a + (Number(b.total) || 0), 0);
+    const kgV = vVentas.reduce((a, b) => a + (Number(b.kilos) || 0), 0);
+    const precioProm = kgV > 0 ? ingV / kgV : 0;
+
+    const vTrat = tratamientos.filter(item => item.variedad_id == vid);
+    const gastoTrat = vTrat.reduce((a, b) => a + (Number(b.total) || 0), 0);
+
+    const vEsp = especificos.filter(item => item.variedad_id == vid);
+    const gastoEsp = vEsp.reduce((a, b) => a + (Number(b.total) || 0), 0);
+
+    const vJor = jornales.filter(item => item.variedad_id == vid);
+    const gastoJor = vJor.reduce((a, b) => a + (Number(b.total) || 0), 0);
+
+    const prorrateoGen = totalHa > 0 ? (ha / totalHa) * totalGenerales : 0;
+    const totalCostosV = gastoTrat + gastoEsp + gastoJor + prorrateoGen;
+    const netoV = ingV - totalCostosV;
+    const rentArbol = arboles > 0 ? netoV / arboles : null;
+
+    return {
+      id: vid,
+      nombre: v.nombre,
+      num_arboles: arboles,
+      hectareas: ha,
+      ingresos_ventas: ingV,
+      kilos_vendidos: kgV,
+      precio_promedio_kg: precioProm,
+      gasto_quimicos: gastoTrat,
+      gasto_especificos: gastoEsp,
+      gasto_jornales: gastoJor,
+      gasto_generales_prorrateado: prorrateoGen,
+      total_gastos: totalCostosV,
+      resultado_neto: netoV,
+      resultado_por_arbol: rentArbol
+    };
+  });
+
+  renderGraficoEspecies(resumenVariedades);
+  renderGraficoGastos({
+    "Insumos / Fitosanitarios": totalTratamientos,
+    "Jornales / Mano de Obra": totalJornales,
+    "Gastos Específicos": totalEspecificos,
+    "Gastos Generales / Arriendos": totalGenerales
+  });
+  renderDashboardVariedadesMini(resumenVariedades);
+  renderTablaResumenEspecies(resumenVariedades);
+}
+
+function renderDashboardVariedadesMini(variedades) {
+  const tbody = document.getElementById("dashboardVariedadesTable");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  variedades.forEach(v => {
+    const netoColor = v.resultado_neto >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold";
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50/80 transition";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-semibold text-slate-800">${v.nombre}</td>
+      <td class="py-2.5 px-3">${v.hectareas} Ha</td>
+      <td class="py-2.5 px-3">${v.num_arboles ? `${v.num_arboles}` : '-'}</td>
+      <td class="py-2.5 px-3 text-right font-medium text-emerald-600">${formatMoney(v.ingresos_ventas)}</td>
+      <td class="py-2.5 px-3 text-right text-rose-600">${formatMoney(v.total_gastos)}</td>
+      <td class="py-2.5 px-3 text-right ${netoColor}">${formatMoney(v.resultado_neto)}</td>
+      <td class="py-2.5 px-3 text-right">${v.resultado_por_arbol !== null ? formatMoney(v.resultado_por_arbol) : '-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderTablaResumenEspecies(variedades) {
+  const tbody = document.getElementById("resumenVariedadesBody");
+  const tfoot = document.getElementById("resumenVariedadesFoot");
+  if (!tbody || !tfoot) return;
+
+  tbody.innerHTML = "";
+
+  let sumArboles = 0;
+  let sumHa = 0;
+  let sumIngresos = 0;
+  let sumQuimicos = 0;
+  let sumEspecificos = 0;
+  let sumGenerales = 0;
+  let sumJornales = 0;
+  let sumTotalCostos = 0;
+  let sumNeto = 0;
+  let sumKilos = 0;
+
+  variedades.forEach(v => {
+    sumArboles += v.num_arboles || 0;
+    sumHa += v.hectareas || 0;
+    sumIngresos += v.ingresos_ventas;
+    sumQuimicos += v.gasto_quimicos;
+    sumEspecificos += v.gasto_especificos;
+    sumGenerales += v.gasto_generales_prorrateado;
+    sumJornales += v.gasto_jornales;
+    sumTotalCostos += v.total_gastos;
+    sumNeto += v.resultado_neto;
+    sumKilos += v.kilos_vendidos;
+
+    const netoClass = v.resultado_neto >= 0 ? "text-emerald-700 bg-emerald-50/50" : "text-rose-700 bg-rose-50/50";
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-bold text-slate-900">${v.nombre}</td>
+      <td class="py-2.5 px-2 text-center text-slate-600">${v.num_arboles || '-'}</td>
+      <td class="py-2.5 px-2 text-center text-slate-600">${v.hectareas || '-'}</td>
+      <td class="py-2.5 px-3 text-right font-bold text-emerald-700 bg-emerald-50/20">${formatMoney(v.ingresos_ventas)}</td>
+      <td class="py-2.5 px-3 text-right text-slate-700">${formatMoney(v.gasto_quimicos)}</td>
+      <td class="py-2.5 px-3 text-right text-slate-700">${formatMoney(v.gasto_especificos)}</td>
+      <td class="py-2.5 px-3 text-right text-slate-500">${formatMoney(v.gasto_generales_prorrateado)}</td>
+      <td class="py-2.5 px-3 text-right text-slate-700">${formatMoney(v.gasto_jornales)}</td>
+      <td class="py-2.5 px-3 text-right font-semibold text-rose-700 bg-rose-50/30">${formatMoney(v.total_gastos)}</td>
+      <td class="py-2.5 px-3 text-right font-black ${netoClass}">${formatMoney(v.resultado_neto)}</td>
+      <td class="py-2.5 px-2 text-right font-medium text-slate-700">${v.resultado_por_arbol !== null ? formatMoney(v.resultado_por_arbol) : '-'}</td>
+      <td class="py-2.5 px-2 text-right font-medium text-slate-800">${formatNum(v.kilos_vendidos, 1)} kg</td>
+      <td class="py-2.5 px-2 text-right text-slate-600">${v.precio_promedio_kg > 0 ? formatMoney(v.precio_promedio_kg) : '-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  tfoot.innerHTML = `
+    <tr>
+      <td class="py-3 px-3 uppercase tracking-wider">TOTALES FUNDO EL CASTILLO</td>
+      <td class="py-3 px-2 text-center">${sumArboles}</td>
+      <td class="py-3 px-2 text-center">${formatNum(sumHa, 1)} Ha</td>
+      <td class="py-3 px-3 text-right font-black text-emerald-800">${formatMoney(sumIngresos)}</td>
+      <td class="py-3 px-3 text-right">${formatMoney(sumQuimicos)}</td>
+      <td class="py-3 px-3 text-right">${formatMoney(sumEspecificos)}</td>
+      <td class="py-3 px-3 text-right">${formatMoney(sumGenerales)}</td>
+      <td class="py-3 px-3 text-right">${formatMoney(sumJornales)}</td>
+      <td class="py-3 px-3 text-right font-black text-rose-800">${formatMoney(sumTotalCostos)}</td>
+      <td class="py-3 px-3 text-right font-black ${sumNeto >= 0 ? 'text-emerald-800' : 'text-rose-800'}">${formatMoney(sumNeto)}</td>
+      <td class="py-3 px-2 text-right">${sumArboles > 0 ? formatMoney(sumNeto / sumArboles) : '-'}</td>
+      <td class="py-3 px-2 text-right font-bold">${formatNum(sumKilos, 1)} kg</td>
+      <td class="py-3 px-2 text-right">${sumKilos > 0 ? formatMoney(sumIngresos / sumKilos) : '-'}</td>
+    </tr>
+  `;
+}
+
+// Gráficos Chart.js
+function renderGraficoEspecies(variedades) {
+  const ctx = document.getElementById("chartEspecies")?.getContext("2d");
+  if (!ctx) return;
+
+  const labels = variedades.map(v => v.nombre);
+  const dataIngresos = variedades.map(v => v.ingresos_ventas);
+  const dataGastos = variedades.map(v => v.total_gastos);
+
+  if (chartEspeciesInst) chartEspeciesInst.destroy();
+
+  chartEspeciesInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Ingresos Ventas',
+          data: dataIngresos,
+          backgroundColor: '#10b981',
+          borderRadius: 6
+        },
+        {
+          label: 'Costos Totales',
+          data: dataGastos,
+          backgroundColor: '#f43f5e',
+          borderRadius: 6
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 10 } } }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { font: { size: 9 } } },
+        x: { ticks: { font: { size: 9 } } }
+      }
+    }
+  });
+}
+
+function renderGraficoGastos(distribucion) {
+  const ctx = document.getElementById("chartGastos")?.getContext("2d");
+  if (!ctx) return;
+
+  const labels = Object.keys(distribucion);
+  const data = Object.values(distribucion);
+  const total = data.reduce((a, b) => a + b, 0);
+
+  if (chartGastosInst) chartGastosInst.destroy();
+
+  if (total === 0) {
+    chartGastosInst = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Sin gastos registrados'],
+        datasets: [{ data: [1], backgroundColor: ['#e2e8f0'] }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+      }
+    });
+    return;
+  }
+
+  chartGastosInst = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: ['#0d9488', '#3b82f6', '#f43f5e', '#a855f7'],
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } }
+      },
+      cutout: '65%'
+    }
+  });
+}
+
+// Matriz Mensual por Trabajador (Excel)
+function cargarMatrizMensualJornales() {
+  const tbody = document.getElementById("matrizJornalesBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const trabajadores = globalData.trabajadores;
+  const jornales = globalData.jornales;
+
+  let totalesMesHoras = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  let totalesMesCosto = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+  trabajadores.forEach(t => {
+    let horasMes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let costoMes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    const jornalesT = jornales.filter(j => j.trabajador_id == t.id);
+    jornalesT.forEach(j => {
+      if (!j.fecha) return;
+      const m = parseInt(j.fecha.split("-")[1], 10) - 1;
+      if (m >= 0 && m < 12) {
+        horasMes[m] += Number(j.horas) || 0;
+        costoMes[m] += Number(j.total) || 0;
+        totalesMesHoras[m] += Number(j.horas) || 0;
+        totalesMesCosto[m] += Number(j.total) || 0;
+      }
+    });
+
+    const totH = horasMes.reduce((a, b) => a + b, 0);
+    const totC = costoMes.reduce((a, b) => a + b, 0);
+
+    // Fila Horas
+    const trH = document.createElement("tr");
+    trH.className = "bg-white hover:bg-slate-50 border-t border-slate-200";
+    let hTd = `<td class="py-2 px-3 font-bold text-slate-800 border-r border-slate-200">${t.nombre} <span class="text-[9px] font-normal text-slate-500 block">Horas/Mes</span></td>`;
+    horasMes.forEach(h => {
+      hTd += `<td class="py-2 px-1 text-center font-mono text-[10px] ${h > 0 ? 'font-bold text-blue-600 bg-blue-50/30' : 'text-slate-400'}">${h || 0}</td>`;
+    });
+    hTd += `<td class="py-2 px-2.5 text-right font-bold text-slate-900 bg-slate-100">${totH} hrs</td>`;
+    trH.innerHTML = hTd;
+    tbody.appendChild(trH);
+
+    // Fila Coste
+    const trC = document.createElement("tr");
+    trC.className = "bg-slate-50/40 hover:bg-slate-50 border-b border-slate-200 text-slate-600";
+    let cTd = `<td class="py-2 px-3 text-slate-500 italic text-[10px] border-r border-slate-200 pl-4">Coste / Mes</td>`;
+    costoMes.forEach(c => {
+      cTd += `<td class="py-2 px-1 text-center font-mono text-[10px] ${c > 0 ? 'font-bold text-slate-800' : 'text-slate-400'}">${c > 0 ? formatNum(c, 0) : '0'}</td>`;
+    });
+    cTd += `<td class="py-2 px-2.5 text-right font-bold text-blue-700 bg-blue-50/50">${formatMoney(totC)}</td>`;
+    trC.innerHTML = cTd;
+    tbody.appendChild(trC);
+  });
+
+  // Fila Totales
+  const granH = totalesMesHoras.reduce((a, b) => a + b, 0);
+  const granC = totalesMesCosto.reduce((a, b) => a + b, 0);
+
+  const trTotH = document.createElement("tr");
+  trTotH.className = "bg-slate-900 text-white font-bold border-t-2 border-slate-700";
+  let tHTd = `<td class="py-2 px-3 uppercase text-[9px]">TOTAL HORAS CAMPO</td>`;
+  totalesMesHoras.forEach(h => {
+    tHTd += `<td class="py-2 px-1 text-center font-mono text-[10px]">${h}</td>`;
+  });
+  tHTd += `<td class="py-2 px-2.5 text-right font-black bg-slate-950">${granH} hrs</td>`;
+  trTotH.innerHTML = tHTd;
+  tbody.appendChild(trTotH);
+
+  const trTotC = document.createElement("tr");
+  trTotC.className = "bg-slate-800 text-emerald-400 font-bold border-b-2 border-slate-700";
+  let tCTd = `<td class="py-2 px-3 uppercase text-[9px] text-white">TOTAL COSTE MANO OBRA</td>`;
+  totalesMesCosto.forEach(c => {
+    tCTd += `<td class="py-2 px-1 text-center font-mono text-[10px]">${c > 0 ? formatNum(c, 0) : '0'}</td>`;
+  });
+  tCTd += `<td class="py-2 px-2.5 text-right font-black bg-slate-950 text-emerald-400">${formatMoney(granC)}</td>`;
+  trTotC.innerHTML = tCTd;
+  tbody.appendChild(trTotC);
+}
+
+// ================= MODALES Y ACCIONES =================
+function abrirModalRegistroRapido() { document.getElementById("modalRegistroRapido")?.showModal(); }
+function abrirModalVenta() { document.getElementById("modalVenta")?.showModal(); }
+function abrirModalJornal() { document.getElementById("modalJornal")?.showModal(); }
+function abrirModalTratamiento() { document.getElementById("modalTratamiento")?.showModal(); }
+function abrirModalGastoGeneral() { document.getElementById("modalGastoGeneral")?.showModal(); }
+function abrirModalGastoEspecifico() { document.getElementById("modalGastoEspecifico")?.showModal(); }
+function abrirModalCompraInsumo() { document.getElementById("modalCompraInsumo")?.showModal(); }
+function abrirModalNuevoProducto() { document.getElementById("modalNuevoProducto")?.showModal(); }
+function abrirModalTrabajador() { document.getElementById("modalTrabajador")?.showModal(); }
+function abrirModalVariedad() { document.getElementById("modalVariedad")?.showModal(); }
+function abrirModalParcela() { document.getElementById("modalParcela")?.showModal(); }
+function cerrarDialog(id) { document.getElementById(id)?.close(); }
+
+function calcularTotalVenta() {
+  const k = parseFloat(document.getElementById("ventaKilos").value) || 0;
+  const p = parseFloat(document.getElementById("ventaPrecio").value) || 0;
+  document.getElementById("ventaTotalCalculado").textContent = formatMoney(k * p);
+}
+
+function calcularTotalJornal() {
+  const h = parseFloat(document.getElementById("jornalHoras").value) || 0;
+  const p = parseFloat(document.getElementById("jornalPrecioHora").value) || 0;
+  document.getElementById("jornalTotalCalculado").textContent = formatMoney(h * p);
+}
+
+function calcularTotalTratamiento() {
+  const c = parseFloat(document.getElementById("trataCantidad").value) || 0;
+  const p = parseFloat(document.getElementById("trataPrecioUnitario").value) || 0;
+  document.getElementById("trataTotalCalculado").textContent = formatMoney(c * p);
+}
+
+function calcularTotalCompra() {
+  const c = parseFloat(document.getElementById("compraCantidad").value) || 0;
+  const p = parseFloat(document.getElementById("compraPrecioUnitario").value) || 0;
+  document.getElementById("compraTotalCalculado").textContent = formatMoney(c * p);
+}
+
+function actualizarPrecioInsumo(productoId) {
+  const p = globalData.productos.find(item => item.id == productoId);
+  if (p) {
+    document.getElementById("trataPrecioUnitario").value = p.precio_referencial || 0;
+    document.getElementById("trataStockInfo").textContent = `Stock en almacén: ${p.stock_actual} ${p.unidad}`;
+    calcularTotalTratamiento();
+  }
+}
+
+// Guardar
+async function guardarVenta(e) {
+  e.preventDefault();
+  const k = parseFloat(document.getElementById("ventaKilos").value);
+  const p = parseFloat(document.getElementById("ventaPrecio").value);
+  const data = {
+    fecha: document.getElementById("ventaFecha").value,
+    variedad_id: parseInt(document.getElementById("ventaVariedadId").value),
+    kilos: k,
+    precio_kilo: p,
+    total: k * p,
+    comprador: document.getElementById("ventaComprador").value,
+    nro_boleta: document.getElementById("ventaComprobante").value,
+    cobrado: document.getElementById("ventaCobrado").checked,
+    notas: document.getElementById("ventaNotas").value
+  };
+
+  const res = await dataInsert("ventas", data);
+  if (res.success) {
+    cerrarDialog("modalVenta");
+    document.getElementById("formVenta").reset();
+    initFechasHoy();
+    mostrarToast("Venta registrada con éxito", "💰");
+    actualizarDatos();
+  }
+}
+
+async function guardarJornal(e) {
+  e.preventDefault();
+  const h = parseFloat(document.getElementById("jornalHoras").value);
+  const p = parseFloat(document.getElementById("jornalPrecioHora").value);
+  const data = {
+    fecha: document.getElementById("jornalFecha").value,
+    trabajador_id: parseInt(document.getElementById("jornalTrabajadorId").value),
+    variedad_id: document.getElementById("jornalVariedadId").value ? parseInt(document.getElementById("jornalVariedadId").value) : null,
+    horas: h,
+    precio_hora: p,
+    total: h * p,
+    labor: document.getElementById("jornalLabor").value,
+    notas: document.getElementById("jornalNotas").value
+  };
+
+  const res = await dataInsert("jornales", data);
+  if (res.success) {
+    cerrarDialog("modalJornal");
+    document.getElementById("formJornal").reset();
+    initFechasHoy();
+    mostrarToast("Jornal guardado", "👨‍🌾");
+    actualizarDatos();
+  }
+}
+
+async function guardarTratamiento(e) {
+  e.preventDefault();
+  const c = parseFloat(document.getElementById("trataCantidad").value);
+  const p = parseFloat(document.getElementById("trataPrecioUnitario").value);
+  const data = {
+    fecha: document.getElementById("trataFecha").value,
+    variedad_id: parseInt(document.getElementById("trataVariedadId").value),
+    producto_id: parseInt(document.getElementById("trataProductoId").value),
+    cantidad: c,
+    precio_unitario: p,
+    total: c * p,
+    notas: document.getElementById("trataNotas").value
+  };
+
+  const res = await dataInsert("tratamientos", data);
+  if (res.success) {
+    cerrarDialog("modalTratamiento");
+    document.getElementById("formTratamiento").reset();
+    initFechasHoy();
+    mostrarToast("Aplicación registrada", "🧪");
+    actualizarDatos();
+  }
+}
+
+async function guardarGastoGeneral(e) {
+  e.preventDefault();
+  const data = {
+    fecha: document.getElementById("ggFecha").value,
+    concepto: document.getElementById("ggConcepto").value,
+    total: parseFloat(document.getElementById("ggTotal").value),
+    categoria: document.getElementById("ggCategoria").value,
+    empresa: document.getElementById("ggEmpresa").value,
+    nro_factura: document.getElementById("ggFactura").value
+  };
+
+  const res = await dataInsert("gastos_generales", data);
+  if (res.success) {
+    cerrarDialog("modalGastoGeneral");
+    document.getElementById("formGastoGeneral").reset();
+    initFechasHoy();
+    mostrarToast("Gasto general guardado", "🚜");
+    actualizarDatos();
+  }
+}
+
+async function guardarGastoEspecifico(e) {
+  e.preventDefault();
+  const data = {
+    fecha: document.getElementById("geFecha").value,
+    variedad_id: parseInt(document.getElementById("geVariedadId").value),
+    concepto: document.getElementById("geConcepto").value,
+    total: parseFloat(document.getElementById("geTotal").value),
+    empresa: document.getElementById("geEmpresa").value,
+    nro_factura: document.getElementById("geFactura").value
+  };
+
+  const res = await dataInsert("gastos_especificos", data);
+  if (res.success) {
+    cerrarDialog("modalGastoEspecifico");
+    document.getElementById("formGastoEspecifico").reset();
+    initFechasHoy();
+    mostrarToast("Gasto específico guardado", "🌱");
+    actualizarDatos();
+  }
+}
+
+async function guardarCompraInsumo(e) {
+  e.preventDefault();
+  const c = parseFloat(document.getElementById("compraCantidad").value);
+  const p = parseFloat(document.getElementById("compraPrecioUnitario").value);
+  const data = {
+    fecha: document.getElementById("compraFecha").value,
+    producto_id: parseInt(document.getElementById("compraProductoId").value),
+    cantidad: c,
+    precio_unitario: p,
+    total: c * p,
+    proveedor: document.getElementById("compraProveedor").value,
+    nro_factura: document.getElementById("compraFactura").value,
+    pagado: document.getElementById("compraPagado").checked
+  };
+
+  const res = await dataInsert("compras_productos", data);
+  if (res.success) {
+    cerrarDialog("modalCompraInsumo");
+    document.getElementById("formCompraInsumo").reset();
+    initFechasHoy();
+    mostrarToast("Compra registrada y stock aumentado", "📦");
+    actualizarDatos();
+  }
+}
+
+async function guardarNuevoProducto(e) {
+  e.preventDefault();
+  const data = {
+    nombre: document.getElementById("prodNombre").value.trim().toUpperCase(),
+    unidad: document.getElementById("prodUnidad").value,
+    stock_anterior: parseFloat(document.getElementById("prodStockInicial").value) || 0,
+    stock_actual: parseFloat(document.getElementById("prodStockInicial").value) || 0,
+    precio_referencial: parseFloat(document.getElementById("prodPrecioRef").value) || 0
+  };
+
+  const res = await dataInsert("productos", data);
+  if (res.success) {
+    cerrarDialog("modalNuevoProducto");
+    document.getElementById("formNuevoProducto").reset();
+    mostrarToast("Insumo agregado al catálogo", "✅");
+    actualizarDatos();
+  }
+}
+
+async function guardarTrabajador(e) {
+  e.preventDefault();
+  const data = {
+    nombre: document.getElementById("trabNombre").value.trim(),
+    rol: document.getElementById("trabRol").value,
+    costo_hora_defecto: parseFloat(document.getElementById("trabCostoHora").value) || 10
+  };
+
+  const res = await dataInsert("trabajadores", data);
+  if (res.success) {
+    cerrarDialog("modalTrabajador");
+    document.getElementById("formTrabajador").reset();
+    mostrarToast("Trabajador registrado", "👨‍🌾");
+    actualizarDatos();
+  }
+}
+
+async function guardarVariedad(e) {
+  e.preventDefault();
+  const data = {
+    nombre: document.getElementById("varNombre").value.trim().toUpperCase(),
+    especie: document.getElementById("varEspecie").value.trim() || document.getElementById("varNombre").value.trim(),
+    num_arboles: parseInt(document.getElementById("varNumArboles").value) || 0,
+    anio_plantacion: parseInt(document.getElementById("varAnio").value) || null,
+    hectareas: parseFloat(document.getElementById("varHectareas").value) || 0
+  };
+
+  const res = await dataInsert("variedades", data);
+  if (res.success) {
+    cerrarDialog("modalVariedad");
+    document.getElementById("formVariedad").reset();
+    mostrarToast("Variedad registrada", "🥑");
+    actualizarDatos();
+  }
+}
+
+async function guardarParcela(e) {
+  e.preventDefault();
+  const data = {
+    nombre: document.getElementById("parcNombre").value.trim(),
+    hectareas: parseFloat(document.getElementById("parcHectareas").value) || 0,
+    tipo_tenencia: document.getElementById("parcTenencia").value,
+    propietario: document.getElementById("parcPropietario").value
+  };
+
+  const res = await dataInsert("parcelas", data);
+  if (res.success) {
+    cerrarDialog("modalParcela");
+    document.getElementById("formParcela").reset();
+    mostrarToast("Parcela registrada", "🗺️");
+    actualizarDatos();
+  }
+}
+
+// Pestañas
+function toggleJornalesTab(tab) {
+  const dContent = document.getElementById("jornalesDiariosContent");
+  const mContent = document.getElementById("jornalesMensualContent");
+  const tabD = document.getElementById("tabJornalesDiarios");
+  const tabM = document.getElementById("tabJornalesMensual");
+
+  if (tab === "diarios") {
+    dContent.classList.remove("hidden");
+    mContent.classList.add("hidden");
+    tabD.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap";
+    tabM.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap";
+  } else {
+    dContent.classList.add("hidden");
+    mContent.classList.remove("hidden");
+    tabM.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap";
+    tabD.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap";
+    cargarMatrizMensualJornales();
+  }
+}
+
+function toggleInsumosTab(tab) {
+  const sContent = document.getElementById("insumosStockContent");
+  const cContent = document.getElementById("insumosComprasContent");
+  const tabS = document.getElementById("tabInsumosStock");
+  const tabC = document.getElementById("tabInsumosCompras");
+
+  if (tab === "stock") {
+    sContent.classList.remove("hidden");
+    cContent.classList.add("hidden");
+    tabS.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs";
+    tabC.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200";
+  } else {
+    sContent.classList.add("hidden");
+    cContent.classList.remove("hidden");
+    tabC.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs";
+    tabS.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200";
+  }
+}
+
+// Exportar CSV
+function exportarTablaCSV(tableId, filename) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+
+  let csv = [];
+  const rows = table.querySelectorAll("tr");
+
+  for (let i = 0; i < rows.length; i++) {
+    let row = [];
+    const cols = rows[i].querySelectorAll("td, th");
+    for (let j = 0; j < cols.length; j++) {
+      let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, " ").trim();
+      data = data.replace(/"/g, '""');
+      row.push(`"${data}"`);
+    }
+    csv.push(row.join(";"));
+  }
+
+  const csvFile = new Blob(["\uFEFF" + csv.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const downloadLink = document.createElement("a");
+  downloadLink.download = filename;
+  downloadLink.href = window.URL.createObjectURL(csvFile);
+  downloadLink.style.display = "none";
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
+
+  mostrarToast(`Archivo ${filename} descargado`, "📥");
+}
+
+// Backup & Restore
+async function descargarBackup() {
+  let backupData = {};
+  const tables = ["parcelas", "variedades", "productos", "compras_productos",
+                  "tratamientos", "ventas", "ingresos_financieros", "gastos_especificos",
+                  "gastos_generales", "trabajadores", "jornales"];
+
+  if (supabaseClient) {
+    for (const t of tables) {
+      const { data } = await supabaseClient.from(t).select("*");
+      backupData[t] = data || [];
+    }
+  } else {
+    const res = await fetch("/api/backup");
+    const json = await res.json();
+    backupData = json.data || {};
+  }
+
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+  const dl = document.createElement("a");
+  const fecha = new Date().toISOString().split("T")[0];
+  dl.setAttribute("href", dataStr);
+  dl.setAttribute("download", `Fundo_El_Castillo_Backup_${fecha}.json`);
+  dl.click();
+
+  mostrarToast("Copia de seguridad descargada", "💾");
+}
+
+function restaurarBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!confirm("⚠️ ¿Deseas restaurar esta copia de seguridad?")) return;
+
+      if (!supabaseClient) {
+        const res = await fetch("/api/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (json.success) {
+          mostrarToast("Restauración completada", "✅");
+          actualizarDatos();
+        }
+      } else {
+        alert("Para restaurar en Supabase, usa el panel de Supabase o desconéctate temporalmente para restaurar en SQLite.");
+      }
+    } catch (err) {
+      alert("Archivo JSON no válido.");
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Toast
+function mostrarToast(mensaje, icon = "✅") {
+  const toast = document.getElementById("toast");
+  const msgEl = document.getElementById("toastMessage");
+  const iconEl = document.getElementById("toastIcon");
+
+  if (!toast || !msgEl) return;
+
+  msgEl.textContent = mensaje;
+  iconEl.textContent = icon;
+
+  toast.classList.add("show");
+  setTimeout(() => {
+    toast.classList.remove("show");
+  }, 3500);
+}

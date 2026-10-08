@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fundo El Castillo | Control Integral de Campo</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js para gráficos -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Supabase JS Client para conexión directa en la nube / GitHub Pages -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              200: '#bbf7d0',
+              300: '#86efac',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col md:flex-row pb-16 md:pb-0">
+
+  <!-- OVERLAY PARA MENÚ MÓVIL -->
+  <div id="mobileOverlay" onclick="toggleMobileMenu(false)" class="fixed inset-0 bg-slate-900/60 z-30 hidden md:hidden backdrop-blur-xs transition-opacity duration-300"></div>
+
+  <!-- SIDEBAR NAVEGACIÓN (DESKTOP + DRAWER MÓVIL) -->
+  <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-72 md:w-64 bg-slate-950 text-slate-200 transform -translate-x-full md:translate-x-0 md:static flex flex-col justify-between shadow-2xl md:shadow-xl transition-transform duration-300 ease-in-out">
+    <div>
+      <!-- Logo y Título: Fundo El Castillo con Silueta de Campesino -->
+      <div class="p-4 sm:p-5 flex items-center justify-between border-b border-slate-800/80 bg-slate-900/40">
+        <div class="flex items-center space-x-3">
+          <!-- Icono: Silueta del Campesino con su Sombrero -->
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-800 via-emerald-700 to-amber-600 p-1 flex items-center justify-center text-white shadow-lg shadow-emerald-900/40 border border-emerald-500/30 flex-shrink-0">
+            <svg class="w-8 h-8" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <!-- Copa del sombrero -->
+              <path d="M10 12.5C10 7.5 11.8 4.5 16 4.5C20.2 4.5 22 7.5 22 12.5" fill="#ca8a04" stroke="#fef08a" stroke-width="1.8" stroke-linecap="round"/>
+              <!-- Cinta tradicional del sombrero -->
+              <path d="M10.2 11C12 11.8 20 11.8 21.8 11" stroke="#78350f" stroke-width="2.2" stroke-linecap="round"/>
+              <!-- Ala ancha del sombrero campesino -->
+              <path d="M2.5 14C6 11.5 10.5 11 16 11C21.5 11 26 11.5 29.5 14C27 15.8 22 14.8 16 14.8C10 14.8 5 15.8 2.5 14Z" fill="#eab308" stroke="#fef08a" stroke-width="1.6" stroke-linejoin="round"/>
+              <!-- Rostro del campesino -->
+              <path d="M11 15.5V18.5C11 21.5 13.2 24 16 24C18.8 24 21 21.5 21 18.5V15.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+              <!-- Rasgos / Sonrisa campesina -->
+              <path d="M16 17V19" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+              <path d="M14 20.8C15 21.8 17 21.8 18 20.8" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+              <!-- Cuello y Hombros -->
+              <path d="M8 29.5C8 26 11.5 25 16 25C20.5 25 24 26 24 29.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="font-extrabold text-base tracking-tight text-white leading-tight">
+              Fundo El Castillo
+            </h1>
+            <p class="text-[11px] text-emerald-400 font-medium">Gestión de Campo Agrícola</p>
+          </div>
+        </div>
+
+        <button onclick="toggleMobileMenu(false)" class="md:hidden text-slate-400 hover:text-white p-2">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Resumen de Superficie del Campo -->
+      <div class="px-5 py-3 bg-slate-900/60 border-b border-slate-800/80 text-xs text-slate-300">
+        <div class="flex justify-between items-center py-0.5">
+          <span class="text-slate-400">Superficie:</span>
+          <span class="font-bold text-emerald-400" id="sbTotalHectareas">3.0 Ha (Alquiladas)</span>
+        </div>
+        <div class="flex justify-between items-center py-0.5">
+          <span class="text-slate-400">Cultivos:</span>
+          <span class="font-semibold text-white">Palta, Plátano, Frutales</span>
+        </div>
+        <div class="flex justify-between items-center py-0.5">
+          <span class="text-slate-400">Plantas/Árboles:</span>
+          <span class="font-semibold text-amber-300" id="sbTotalArboles">1,350 plantas</span>
+        </div>
+      </div>
+
+      <!-- Menú de Opciones -->
+      <nav id="navMenu" class="p-3 space-y-1 text-sm font-medium overflow-y-auto max-h-[calc(100vh-270px)]">
+        <button onclick="navigate('dashboard'); toggleMobileMenu(false)" class="nav-item active w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="dashboard">
+          <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          <span>Panel General</span>
+        </button>
+
+        <button onclick="navigate('resumen-especies'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="resumen-especies">
+          <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>Rentabilidad por Especie</span>
+        </button>
+
+        <button onclick="navigate('ventas'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="ventas">
+          <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Ventas & Cosecha</span>
+        </button>
+
+        <button onclick="navigate('gastos-especificos'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="gastos-especificos">
+          <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          <span>Gastos Específicos</span>
+        </button>
+
+        <button onclick="navigate('gastos-generales'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="gastos-generales">
+          <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          <span>Gastos Generales / Arriendos</span>
+        </button>
+
+        <button onclick="navigate('jornales'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="jornales">
+          <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          <span>Jornales & Personal</span>
+        </button>
+
+        <button onclick="navigate('tratamientos'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="tratamientos">
+          <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+          <span>Tratamientos & Fitosanitarios</span>
+        </button>
+
+        <button onclick="navigate('insumos'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="insumos">
+          <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          <span>Almacén de Insumos</span>
+        </button>
+
+        <button onclick="navigate('parcelas-variedades'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="parcelas-variedades">
+          <svg class="w-5 h-5 text-lime-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          <span>Cultivos & Parcelas</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Footer Sidebar: Estado de Base de Datos y Supabase -->
+    <div class="p-4 border-t border-slate-800/80 text-xs text-slate-400 space-y-2.5 bg-slate-900/60">
+      <!-- Indicador Cloud / Local -->
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] text-slate-400">Base de datos:</span>
+        <button onclick="abrirModalSupabase()" id="dbStatusBadge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="dbStatusText">SQLite Local</span>
+          <span class="text-[9px] underline">⚙️</span>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between">
+        <span>Moneda:</span>
+        <select id="monedaSelect" onchange="cambiarMoneda(this.value)" class="bg-slate-800 text-white rounded px-2 py-1 border border-slate-700 focus:outline-none text-xs">
+          <option value="S/." selected>Soles (S/.)</option>
+          <option value="$">Dólares ($)</option>
+        </select>
+      </div>
+
+      <div class="flex space-x-2 pt-1">
+        <button onclick="descargarBackup()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 py-1.5 px-2 rounded-lg flex items-center justify-center space-x-1 transition text-[11px]" title="Descargar Copia de Seguridad JSON">
+          <svg class="w-3.5 h-3.5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span>Backup JSON</span>
+        </button>
+        <button onclick="document.getElementById('restoreFileInput').click()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 py-1.5 px-2.5 rounded-lg flex items-center justify-center transition" title="Restaurar Copia de Seguridad">
+          <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        </button>
+        <input type="file" id="restoreFileInput" style="display:none" accept=".json" onchange="restaurarBackup(event)">
+      </div>
+    </div>
+  </aside>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="flex-1 flex flex-col min-w-0 bg-slate-100/60 overflow-y-auto min-h-screen">
+    
+    <!-- Topbar Header Móvil y Desktop -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-6 py-3.5 flex items-center justify-between shadow-xs">
+      <div class="flex items-center space-x-3">
+        <!-- Botón menú hamburguesa visible en celulares -->
+        <button onclick="toggleMobileMenu(true)" class="md:hidden text-slate-700 hover:text-slate-900 p-1.5 -ml-1 rounded-lg bg-slate-100 focus:outline-none">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 id="pageTitle" class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Panel General</h2>
+            <span class="md:hidden text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">Fundo El Castillo</span>
+          </div>
+          <p id="pageSubtitle" class="text-[11px] sm:text-xs text-slate-500 truncate max-w-[200px] sm:max-w-md">Resumen integral de producción y finanzas por cultivo</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button onclick="abrirModalRegistroRapido()" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center space-x-1.5 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          <span>+ Anotar</span>
+        </button>
+        <button onclick="actualizarDatos()" class="p-2 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition" title="Refrescar datos">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Contenedor dinámico de vistas -->
+    <div class="p-3.5 sm:p-6 lg:p-8 space-y-5 sm:space-y-6 max-w-7xl mx-auto w-full">
+
+      <!-- ================= VISTA 1: DASHBOARD ================= -->
+      <section id="view-dashboard" class="space-y-5 sm:space-y-6">
+        <!-- Tarjetas KPIs Principales -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <!-- Ingresos -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
+              <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                💰
+              </div>
+            </div>
+            <div class="mt-2">
+              <h3 id="kpiIngresos" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
+              <p class="text-[11px] text-emerald-600 mt-0.5 font-medium truncate">
+                <span id="kpiKilosTotales">0 Kg</span> vendidos
+              </p>
+            </div>
+          </div>
+
+          <!-- Gastos Totales -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Egresos</p>
+              <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                📉
+              </div>
+            </div>
+            <div class="mt-2">
+              <h3 id="kpiGastos" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
+              <p class="text-[11px] text-rose-500 mt-0.5 font-medium truncate">
+                Costos acumulados
+              </p>
+            </div>
+          </div>
+
+          <!-- Resultado Neto -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Resultado</p>
+              <div id="kpiResultadoIconContainer" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                ⚖️
+              </div>
+            </div>
+            <div class="mt-2">
+              <h3 id="kpiResultadoNeto" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
+              <p id="kpiMargenSub" class="text-[11px] text-slate-500 mt-0.5 font-medium truncate">Margen de campaña</p>
+            </div>
+          </div>
+
+          <!-- Mano de Obra / Jornales -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Mano de Obra</p>
+              <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                👨‍🌾
+              </div>
+            </div>
+            <div class="mt-2">
+              <h3 id="kpiJornalesMonto" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
+              <p class="text-[11px] text-slate-500 mt-0.5 font-medium truncate"><span id="kpiTotalHoras">0</span> hrs laboradas</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner del Fundo: 3 Hectáreas Arrendadas -->
+        <div class="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 rounded-2xl p-4 sm:p-6 text-white shadow-md relative overflow-hidden">
+          <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="space-y-1">
+              <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                🌱 Fundo El Castillo • 3 Hectáreas
+              </div>
+              <h3 class="text-base sm:text-lg font-bold tracking-tight">Palta Fuerte, Palta Hass, Plátano y Frutales</h3>
+              <p class="text-[11px] sm:text-xs text-slate-300 max-w-2xl leading-relaxed">
+                2 Ha arrendadas a Propietario 1 y 1 Ha a Propietario 2. Cada cultivo mantiene su propia cuenta de ingresos, fitosanitarios y jornales para calcular el margen neto por árbol y hectárea.
+              </p>
+            </div>
+            <div class="flex items-center gap-2 pt-1 md:pt-0">
+              <button onclick="navigate('resumen-especies')" class="w-full sm:w-auto px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow transition text-center">
+                Ver Resultados por Especie →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráficos de Gestión -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <!-- Gráfico 1: Comparativa Ingresos vs Gastos por Especie -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs lg:col-span-2">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 class="font-bold text-slate-800 text-sm sm:text-base">Ingresos vs Gastos por Especie</h4>
+                <p class="text-[11px] text-slate-400">Comparativa económica por cultivo en campaña</p>
+              </div>
+              <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-bold">P&L</span>
+            </div>
+            <div class="h-60 sm:h-64 relative">
+              <canvas id="chartEspecies"></canvas>
+            </div>
+          </div>
+
+          <!-- Gráfico 2: Desglose de Gastos -->
+          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 class="font-bold text-slate-800 text-sm sm:text-base">Estructura de Gastos</h4>
+                <p class="text-[11px] text-slate-400">Distribución de costes operativos</p>
+              </div>
+              <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-bold">Costes</span>
+            </div>
+            <div class="h-60 sm:h-64 relative flex items-center justify-center">
+              <canvas id="chartGastos"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mini-Tabla Resumen de Cultivos -->
+        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div class="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h4 class="font-bold text-slate-800 text-sm sm:text-base">Cultivos en Campo</h4>
+              <p class="text-[11px] text-slate-400">Superficie, árboles y rentabilidad preliminar</p>
+            </div>
+            <button onclick="navigate('resumen-especies')" class="text-xs text-emerald-600 hover:text-emerald-700 font-bold">
+              Ver reporte contable &rarr;
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-600">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Cultivo</th>
+                  <th class="py-2.5 px-3">Ha</th>
+                  <th class="py-2.5 px-3">Árboles</th>
+                  <th class="py-2.5 px-3 text-right">Ventas</th>
+                  <th class="py-2.5 px-3 text-right">Costos</th>
+                  <th class="py-2.5 px-3 text-right">Neto</th>
+                  <th class="py-2.5 px-3 text-right">Rent./Árbol</th>
+                </tr>
+              </thead>
+              <tbody id="dashboardVariedadesTable" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 2: RENTABILIDAD POR ESPECIE (P&L) ================= -->
+      <section id="view-resumen-especies" class="space-y-6 hidden">
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Cuenta de Resultados por Especie</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Muestra fielmente tu plantilla: Ingresos, insumos, gastos específicos, generales y jornales por cultivo.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="exportarTablaCSV('resumenVariedadesExport', 'Resumen_Rentabilidad_Especies.csv')" class="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg flex items-center justify-center gap-1.5 transition">
+                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Descargar Excel / CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Tabla Contable Detallada -->
+          <div class="overflow-x-auto mt-3">
+            <table id="resumenVariedadesExport" class="w-full text-left text-xs text-slate-700 border-collapse">
+              <thead class="bg-slate-950 text-white text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold">
+                <tr>
+                  <th class="py-3 px-3">Variedad / Cultivo</th>
+                  <th class="py-3 px-2 text-center">Árboles</th>
+                  <th class="py-3 px-2 text-center">Ha</th>
+                  <th class="py-3 px-3 text-right bg-emerald-950/70">Ingresos Ventas</th>
+                  <th class="py-3 px-3 text-right">Insumos Químicos</th>
+                  <th class="py-3 px-3 text-right">Gastos Específicos</th>
+                  <th class="py-3 px-3 text-right">Gastos Generales</th>
+                  <th class="py-3 px-3 text-right">Jornales</th>
+                  <th class="py-3 px-3 text-right bg-rose-950/70">Total Costos</th>
+                  <th class="py-3 px-3 text-right bg-emerald-900/80 font-bold">Resultado Neto</th>
+                  <th class="py-3 px-2 text-right">Rent./Árbol</th>
+                  <th class="py-3 px-2 text-right">Kg Vendidos</th>
+                  <th class="py-3 px-2 text-right">Precio Prom.</th>
+                </tr>
+              </thead>
+              <tbody id="resumenVariedadesBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+              <tfoot id="resumenVariedadesFoot" class="bg-slate-100 font-bold text-slate-900 text-xs border-t-2 border-slate-300">
+                <!-- Totales generales -->
+              </tfoot>
+            </table>
+          </div>
+
+          <div class="mt-4 p-3 sm:p-4 rounded-xl bg-emerald-50/70 border border-emerald-200/60 text-xs text-emerald-950 flex items-start gap-2.5">
+            <span class="text-base">💡</span>
+            <div class="text-[11px] sm:text-xs leading-relaxed text-emerald-900">
+              <strong>Fórmulas aplicadas:</strong> Los insumos y jornales se cargan directamente a la variedad donde se aplicaron. Los gastos generales (como el movimiento de tierra a caballo de 220 o arriendos) se prorratean de manera justa por hectárea entre todos los cultivos.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 3: VENTAS Y COSECHA ================= -->
+      <section id="view-ventas" class="space-y-6 hidden">
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Ventas de Cosecha</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Kilos vendidos, precio unitario, comprobantes y estado de cobro</p>
+            </div>
+            <button onclick="abrirModalVenta()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Nueva Venta
+            </button>
+          </div>
+
+          <!-- Filtros de búsqueda -->
+          <div class="my-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <input type="text" id="filtroVentas" oninput="filtrarVentas()" placeholder="Buscar variedad, comprador, boleta..." class="w-full sm:w-72 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500">
+            <div class="text-slate-500 font-medium text-[11px]">
+              Total Ventas: <span id="cantVentasBadge" class="font-bold text-slate-800">0</span>
+            </div>
+          </div>
+
+          <!-- Tabla Ventas -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Variedad</th>
+                  <th class="py-2.5 px-3 text-right">Kilos</th>
+                  <th class="py-2.5 px-3 text-right">Precio/Kg</th>
+                  <th class="py-2.5 px-3 text-right">Total</th>
+                  <th class="py-2.5 px-3">Comprador</th>
+                  <th class="py-2.5 px-3">Comprobante</th>
+                  <th class="py-2.5 px-3 text-center">Estado</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="ventasTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 4: GASTOS ESPECÍFICOS ================= -->
+      <section id="view-gastos-especificos" class="space-y-6 hidden">
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Gastos Específicos por Variedad</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Labores o compras directas para una sola especie (poda especializada, fletes, etc.)</p>
+            </div>
+            <button onclick="abrirModalGastoEspecifico()" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Nuevo Gasto Específico
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Variedad Asignada</th>
+                  <th class="py-2.5 px-3">Concepto</th>
+                  <th class="py-2.5 px-3 text-right">Total</th>
+                  <th class="py-2.5 px-3">Empresa / Proveedor</th>
+                  <th class="py-2.5 px-3">Nº Factura</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="gastosEspecificosTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 5: GASTOS GENERALES ================= -->
+      <section id="view-gastos-generales" class="space-y-6 hidden">
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Gastos Generales y Arriendos</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Mantenimiento global de acequias, arriendos de las 3 Ha y preparación de suelos</p>
+            </div>
+            <button onclick="abrirModalGastoGeneral()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Nuevo Gasto General
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Concepto</th>
+                  <th class="py-2.5 px-3">Categoría</th>
+                  <th class="py-2.5 px-3 text-right">Total</th>
+                  <th class="py-2.5 px-3">Empresa / Operador</th>
+                  <th class="py-2.5 px-3">Nº Factura</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="gastosGeneralesTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 6: JORNALES Y TRABAJADORES ================= -->
+      <section id="view-jornales" class="space-y-6 hidden">
+        <div class="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
+          <button id="tabJornalesDiarios" onclick="toggleJornalesTab('diarios')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap">
+            Registro Diario
+          </button>
+          <button id="tabJornalesMensual" onclick="toggleJornalesTab('mensual')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap">
+            📊 Matriz Mensual (Excel)
+          </button>
+          <button onclick="abrirModalTrabajador()" class="ml-auto bg-slate-800 hover:bg-slate-900 text-white font-medium text-xs px-3 py-2 rounded-xl whitespace-nowrap">
+            + Personal
+          </button>
+        </div>
+
+        <div id="jornalesDiariosContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Jornales Diarios</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Horas trabajadas por Mauro Robles, Kike y personal en cada lote</p>
+            </div>
+            <button onclick="abrirModalJornal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Nuevo Jornal
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Trabajador</th>
+                  <th class="py-2.5 px-3">Cultivo / Lote</th>
+                  <th class="py-2.5 px-3 text-right">Horas</th>
+                  <th class="py-2.5 px-3 text-right">Tarifa/Hora</th>
+                  <th class="py-2.5 px-3 text-right">Total</th>
+                  <th class="py-2.5 px-3">Labor</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="jornalesTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Matriz Mensual Idéntica a tu Excel -->
+        <div id="jornalesMensualContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Resumen Mensual de Mano de Obra</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Horas y costes mensuales de cada trabajador (Enero a Diciembre)</p>
+            </div>
+            <button onclick="exportarTablaCSV('tablaMatrizJornales', 'Resumen_Mensual_Jornales.csv')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 transition">
+              Descargar CSV
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table id="tablaMatrizJornales" class="w-full text-left text-xs text-slate-700 border-collapse border border-slate-200">
+              <thead class="bg-slate-900 text-white text-[10px] uppercase font-semibold">
+                <tr>
+                  <th class="py-2 px-3 border border-slate-700">Trabajador / Métrica</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Ene</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Feb</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Mar</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Abr</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">May</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Jun</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Jul</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Ago</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Sep</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Oct</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Nov</th>
+                  <th class="py-2 px-1 text-center border border-slate-700">Dic</th>
+                  <th class="py-2 px-2.5 text-right bg-slate-950 border border-slate-700 font-bold">TOTAL</th>
+                </tr>
+              </thead>
+              <tbody id="matrizJornalesBody">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 7: TRATAMIENTOS ================= -->
+      <section id="view-tratamientos" class="space-y-6 hidden">
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Aplicaciones y Fitosanitarios</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Anota fumigaciones y abonados: descuenta stock automáticamente y carga el costo al cultivo</p>
+            </div>
+            <button onclick="abrirModalTratamiento()" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Nueva Aplicación
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Cultivo / Lote</th>
+                  <th class="py-2.5 px-3">Producto</th>
+                  <th class="py-2.5 px-3 text-right">Dosis/Cant.</th>
+                  <th class="py-2.5 px-3 text-right">Costo Unit.</th>
+                  <th class="py-2.5 px-3 text-right">Costo Total</th>
+                  <th class="py-2.5 px-3">Notas / Plaga</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="tratamientosTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 8: INSUMOS ================= -->
+      <section id="view-insumos" class="space-y-6 hidden">
+        <div class="flex items-center space-x-2 border-b border-slate-200 pb-2">
+          <button id="tabInsumosStock" onclick="toggleInsumosTab('stock')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs">
+            Almacén & Existencias
+          </button>
+          <button id="tabInsumosCompras" onclick="toggleInsumosTab('compras')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200">
+            Historial de Compras
+          </button>
+          <button onclick="abrirModalNuevoProducto()" class="ml-auto bg-slate-800 hover:bg-slate-900 text-white font-medium text-xs px-3 py-2 rounded-xl">
+            + Insumo
+          </button>
+        </div>
+
+        <div id="insumosStockContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Catálogo de Productos Químicos</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">45 productos precargados de tu Excel con stock y valorización</p>
+            </div>
+            <div class="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold self-start sm:self-auto">
+              Valor Almacén: <span id="badgeValorAlmacen">S/. 0.00</span>
+            </div>
+          </div>
+
+          <div class="my-3">
+            <input type="text" id="filtroInsumos" oninput="filtrarInsumos()" placeholder="Buscar producto químico, fertilizante, abono..." class="w-full sm:max-w-md px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500">
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Producto</th>
+                  <th class="py-2.5 px-2">Unidad</th>
+                  <th class="py-2.5 px-2 text-right">Comprado</th>
+                  <th class="py-2.5 px-2 text-right">Aplicado</th>
+                  <th class="py-2.5 px-3 text-right font-bold">Stock</th>
+                  <th class="py-2.5 px-3 text-right">Precio Ref.</th>
+                  <th class="py-2.5 px-3 text-right">Valor Stock</th>
+                  <th class="py-2.5 px-2 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="insumosTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="insumosComprasContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Compras de Insumos</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Ingresan automáticamente al stock del almacén</p>
+            </div>
+            <button onclick="abrirModalCompraInsumo()" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Registrar Compra
+            </button>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Producto</th>
+                  <th class="py-2.5 px-2 text-right">Cantidad</th>
+                  <th class="py-2.5 px-3 text-right">Precio Unit.</th>
+                  <th class="py-2.5 px-3 text-right">Total</th>
+                  <th class="py-2.5 px-3">Proveedor</th>
+                  <th class="py-2.5 px-3 text-center">Estado</th>
+                  <th class="py-2.5 px-2 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="comprasTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VISTA 9: CULTIVOS Y PARCELAS ================= -->
+      <section id="view-parcelas-variedades" class="space-y-6 hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 class="text-sm sm:text-base font-bold text-slate-900">Cultivos y Variedades</h3>
+                <p class="text-[11px] text-slate-400">Palta Fuerte 1 y 2, Hass, Plátano y Frutales</p>
+              </div>
+              <button onclick="abrirModalVariedad()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition">
+                + Cultivo
+              </button>
+            </div>
+            <div class="overflow-x-auto mt-3">
+              <table class="w-full text-left text-xs text-slate-700">
+                <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold">
+                  <tr>
+                    <th class="py-2 px-3">Nombre</th>
+                    <th class="py-2 px-2">Árboles</th>
+                    <th class="py-2 px-2">Año</th>
+                    <th class="py-2 px-2">Ha</th>
+                    <th class="py-2 px-2 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="adminVariedadesBody" class="divide-y divide-slate-100">
+                  <!-- Se llena vía JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 class="text-sm sm:text-base font-bold text-slate-900">Arriendos de Campo (3 Ha)</h3>
+                <p class="text-[11px] text-slate-400">2 Ha a Propietario 1, 1 Ha a Propietario 2</p>
+              </div>
+              <button onclick="abrirModalParcela()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition">
+                + Parcela
+              </button>
+            </div>
+            <div class="overflow-x-auto mt-3">
+              <table class="w-full text-left text-xs text-slate-700">
+                <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold">
+                  <tr>
+                    <th class="py-2 px-3">Lote / Parcela</th>
+                    <th class="py-2 px-2">Hectáreas</th>
+                    <th class="py-2 px-2">Propietario</th>
+                    <th class="py-2 px-2 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="adminParcelasBody" class="divide-y divide-slate-100">
+                  <!-- Se llena vía JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ================= BARRA DE NAVEGACIÓN INFERIOR MÓVIL (MOBILE BOTTOM BAR) ================= -->
+  <div class="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 text-slate-300 z-30 px-2 py-1.5 flex items-center justify-around text-[10px]">
+    <button onclick="navigate('dashboard')" class="flex flex-col items-center py-1 px-2 text-brand-400">
+      <svg class="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <span>Inicio</span>
+    </button>
+    <button onclick="navigate('resumen-especies')" class="flex flex-col items-center py-1 px-2 hover:text-white">
+      <svg class="w-5 h-5 mb-0.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      <span>Especies</span>
+    </button>
+    <!-- Botón Central de Anotar Rápido -->
+    <button onclick="abrirModalRegistroRapido()" class="flex flex-col items-center -mt-4 bg-emerald-600 active:bg-emerald-700 text-white rounded-full p-2.5 shadow-lg border-2 border-slate-950">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+    </button>
+    <button onclick="navigate('ventas')" class="flex flex-col items-center py-1 px-2 hover:text-white">
+      <svg class="w-5 h-5 mb-0.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span>Ventas</span>
+    </button>
+    <button onclick="toggleMobileMenu(true)" class="flex flex-col items-center py-1 px-2 hover:text-white">
+      <svg class="w-5 h-5 mb-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menú</span>
+    </button>
+  </div>
+
+  <!-- ================= MODAL CONFIGURACIÓN SUPABASE ================= -->
+  <dialog id="modalSupabase" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-emerald-800 text-white px-5 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="text-xl">⚡</span>
+          <div>
+            <h3 class="font-bold text-sm">Conectar con Supabase (Nube)</h3>
+            <p class="text-[10px] text-emerald-200">Permite usar la web online en GitHub Pages y en cualquier celular</p>
+          </div>
+        </div>
+        <button onclick="cerrarDialog('modalSupabase')" class="text-white/80 hover:text-white text-lg font-bold">&times;</button>
+      </div>
+      <form id="formSupabase" onsubmit="guardarConfigSupabase(event)" class="p-5 space-y-3.5 text-xs">
+        <p class="text-slate-600 text-[11px] leading-relaxed">
+          Pega aquí las credenciales de tu proyecto de Supabase (las encuentras en <strong>Project Settings &gt; API</strong>):
+        </p>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Project URL *</label>
+          <input type="url" id="sbUrl" placeholder="https://xyzcompany.supabase.co" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Anon / Public Key *</label>
+          <input type="text" id="sbKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]">
+        </div>
+
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
+          <p class="font-bold text-slate-800">¿Ya ejecutaste el script SQL en Supabase?</p>
+          <p>Encuentra el archivo <code>supabase_schema.sql</code> en tu proyecto, cópialo y pégalo en el <strong>SQL Editor</strong> de Supabase para crear todas las tablas automáticamente.</p>
+        </div>
+
+        <div class="pt-2 flex justify-between items-center border-t">
+          <button type="button" onclick="desconectarSupabase()" class="text-rose-600 hover:text-rose-800 text-[11px] font-semibold">Usar SQLite Local</button>
+          <div class="flex space-x-2">
+            <button type="button" onclick="cerrarDialog('modalSupabase')" class="px-3.5 py-1.5 border rounded-lg text-slate-600">Cerrar</button>
+            <button type="submit" class="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow">Guardar y Conectar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- ================= MODALES DE REGISTRO ================= -->
+
+  <!-- Modal Registro Rápido -->
+  <dialog id="modalRegistroRapido" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-lg w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-slate-950 text-white px-5 py-4 flex items-center justify-between">
+        <h3 class="font-bold text-sm flex items-center gap-2">
+          ⚡ ¿Qué deseas anotar en Fundo El Castillo?
+        </h3>
+        <button onclick="cerrarDialog('modalRegistroRapido')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <div class="p-4 sm:p-6 grid grid-cols-2 gap-3 text-xs">
+        <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalVenta()" class="p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center text-center gap-1.5 transition">
+          <span class="text-2xl">💰</span>
+          <span class="font-bold text-slate-800">Venta Cosecha</span>
+          <span class="text-[10px] text-slate-400">Kilos cosechados</span>
+        </button>
+
+        <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalJornal()" class="p-3.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 flex flex-col items-center text-center gap-1.5 transition">
+          <span class="text-2xl">👨‍🌾</span>
+          <span class="font-bold text-slate-800">Jornal Diario</span>
+          <span class="text-[10px] text-slate-400">Mauro, Kike, horas</span>
+        </button>
+
+        <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalTratamiento()" class="p-3.5 rounded-xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 flex flex-col items-center text-center gap-1.5 transition">
+          <span class="text-2xl">🧪</span>
+          <span class="font-bold text-slate-800">Aplicación</span>
+          <span class="text-[10px] text-slate-400">Abonos y químicos</span>
+        </button>
+
+        <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalGastoGeneral()" class="p-3.5 rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/50 flex flex-col items-center text-center gap-1.5 transition">
+          <span class="text-2xl">🚜</span>
+          <span class="font-bold text-slate-800">Gasto General</span>
+          <span class="text-[10px] text-slate-400">Arriendos, campo</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Venta -->
+  <dialog id="modalVenta" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-emerald-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Registrar Venta de Cosecha</h3>
+        <button onclick="cerrarDialog('modalVenta')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formVenta" onsubmit="guardarVenta(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="ventaFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Variedad / Cultivo *</label>
+            <select id="ventaVariedadId" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Kilos *</label>
+            <input type="number" step="0.1" id="ventaKilos" oninput="calcularTotalVenta()" required placeholder="Ej: 500" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Precio/Kg (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="ventaPrecio" oninput="calcularTotalVenta()" required placeholder="Ej: 4.50" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+          </div>
+        </div>
+
+        <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center justify-between">
+          <span class="font-bold text-emerald-900">Total Venta:</span>
+          <span id="ventaTotalCalculado" class="font-black text-emerald-700 text-sm">S/. 0.00</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Comprador</label>
+            <input type="text" id="ventaComprador" placeholder="Ej: Acopiador local" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Comprobante</label>
+            <input type="text" id="ventaComprobante" placeholder="Boleta/Factura" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <input type="checkbox" id="ventaCobrado" checked class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
+          <label for="ventaCobrado" class="font-medium text-slate-700">Cobrado (Dinero ingresado)</label>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notas / Calibre</label>
+          <input type="text" id="ventaNotas" placeholder="Opcional" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalVenta')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">Guardar Venta</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Jornal -->
+  <dialog id="modalJornal" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-blue-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Registrar Jornal de Mano de Obra</h3>
+        <button onclick="cerrarDialog('modalJornal')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formJornal" onsubmit="guardarJornal(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="jornalFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Trabajador *</label>
+            <select id="jornalTrabajadorId" onchange="actualizarPrecioHoraTrabajador(this.value)" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-blue-500"></select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Cultivo / Lote Asignado</label>
+          <select id="jornalVariedadId" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-blue-500"></select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Horas *</label>
+            <input type="number" step="0.5" id="jornalHoras" oninput="calcularTotalJornal()" required placeholder="Ej: 8" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Precio/Hora (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.5" id="jornalPrecioHora" oninput="calcularTotalJornal()" value="10" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-blue-500">
+          </div>
+        </div>
+
+        <div class="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center justify-between">
+          <span class="font-bold text-blue-900">Total a Pagar:</span>
+          <span id="jornalTotalCalculado" class="font-black text-blue-700 text-sm">S/. 0.00</span>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Labor Realizada</label>
+          <input type="text" id="jornalLabor" placeholder="Ej: Poda, Riego por gravedad, Fumigación, Cosecha" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notas</label>
+          <input type="text" id="jornalNotas" placeholder="Opcional" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalJornal')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow">Guardar Jornal</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Tratamiento -->
+  <dialog id="modalTratamiento" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-teal-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Aplicación de Insumo / Químico</h3>
+        <button onclick="cerrarDialog('modalTratamiento')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formTratamiento" onsubmit="guardarTratamiento(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="trataFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Variedad / Lote *</label>
+            <select id="trataVariedadId" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500"></select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Producto / Insumo *</label>
+          <select id="trataProductoId" onchange="actualizarPrecioInsumo(this.value)" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500"></select>
+          <p id="trataStockInfo" class="text-[10px] text-slate-500 mt-1">Stock en almacén: 0</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Dosis / Cantidad *</label>
+            <input type="number" step="0.01" id="trataCantidad" oninput="calcularTotalTratamiento()" required placeholder="Ej: 2.5" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Costo Unit. (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="trataPrecioUnitario" oninput="calcularTotalTratamiento()" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
+          </div>
+        </div>
+
+        <div class="p-3 bg-teal-50 rounded-xl border border-teal-100 flex items-center justify-between">
+          <span class="font-bold text-teal-900">Costo Total:</span>
+          <span id="trataTotalCalculado" class="font-black text-teal-700 text-sm">S/. 0.00</span>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notas / Dosis / Plaga</label>
+          <input type="text" id="trataNotas" placeholder="Ej: Control de arañita roja" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalTratamiento')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow">Guardar y Descontar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Gasto General -->
+  <dialog id="modalGastoGeneral" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-purple-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Registrar Gasto General</h3>
+        <button onclick="cerrarDialog('modalGastoGeneral')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formGastoGeneral" onsubmit="guardarGastoGeneral(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+          <input type="date" id="ggFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Concepto *</label>
+          <input type="text" id="ggConcepto" required placeholder="Ej: Movimiento de tierra a caballo, Arriendo" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Total (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="ggTotal" required placeholder="Ej: 220" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Categoría</label>
+            <select id="ggCategoria" class="w-full px-3 py-2 border rounded-lg">
+              <option value="Mantenimiento / Operación">Mantenimiento</option>
+              <option value="Alquiler de Terreno (Arriendo)">Arriendo</option>
+              <option value="Preparación de Suelos">Preparación Suelos</option>
+              <option value="Agua de Riego">Agua de Riego</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Empresa / Operador</label>
+            <input type="text" id="ggEmpresa" placeholder="Opcional" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Comprobante</label>
+            <input type="text" id="ggFactura" placeholder="Opcional" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalGastoGeneral')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow">Guardar Gasto</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Gasto Específico -->
+  <dialog id="modalGastoEspecifico" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-rose-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Gasto Específico de Cultivo</h3>
+        <button onclick="cerrarDialog('modalGastoEspecifico')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formGastoEspecifico" onsubmit="guardarGastoEspecifico(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="geFecha" required class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Variedad Asignada *</label>
+            <select id="geVariedadId" required class="w-full px-3 py-2 border rounded-lg"></select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Concepto *</label>
+          <input type="text" id="geConcepto" required placeholder="Ej: Poda Palta Hass, Flete" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Total (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="geTotal" required placeholder="Ej: 150" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Factura</label>
+            <input type="text" id="geFactura" placeholder="Opcional" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalGastoEspecifico')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg shadow">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Compra Insumo -->
+  <dialog id="modalCompraInsumo" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-cyan-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Registrar Compra de Insumo</h3>
+        <button onclick="cerrarDialog('modalCompraInsumo')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formCompraInsumo" onsubmit="guardarCompraInsumo(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="compraFecha" required class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Producto *</label>
+            <select id="compraProductoId" required class="w-full px-3 py-2 border rounded-lg"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Cantidad *</label>
+            <input type="number" step="0.01" id="compraCantidad" oninput="calcularTotalCompra()" required placeholder="Ej: 10" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Precio Unit. (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="compraPrecioUnitario" oninput="calcularTotalCompra()" required placeholder="Ej: 35" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="p-3 bg-cyan-50 rounded-xl border border-cyan-100 flex items-center justify-between">
+          <span class="font-bold text-cyan-900">Total Compra:</span>
+          <span id="compraTotalCalculado" class="font-black text-cyan-700 text-sm">S/. 0.00</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Proveedor</label>
+            <input type="text" id="compraProveedor" placeholder="Ej: Agro tienda" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Comprobante</label>
+            <input type="text" id="compraFactura" placeholder="Factura/Albarán" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <input type="checkbox" id="compraPagado" checked class="rounded text-cyan-600 focus:ring-cyan-500 w-4 h-4">
+          <label for="compraPagado" class="font-medium text-slate-700">Comprobante Pagado</label>
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalCompraInsumo')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-lg shadow">Guardar y Sumar Stock</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Nuevo Producto -->
+  <dialog id="modalNuevoProducto" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Nuevo Insumo al Catálogo</h3>
+        <button onclick="cerrarDialog('modalNuevoProducto')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formNuevoProducto" onsubmit="guardarNuevoProducto(event)" class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Nombre del Insumo *</label>
+          <input type="text" id="prodNombre" required placeholder="Ej: NITROEXTRAC, UREA" class="w-full px-3 py-2 border rounded-lg uppercase">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Unidad</label>
+            <select id="prodUnidad" class="w-full px-3 py-2 border rounded-lg">
+              <option value="Kg/L">Kg / Litros</option>
+              <option value="Litros">Litros</option>
+              <option value="Kilos">Kilos</option>
+              <option value="Sacos">Sacos</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Stock Inicial</label>
+            <input type="number" step="0.1" id="prodStockInicial" value="0" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Precio Referencial (<span class="monedaLabel">S/.</span>)</label>
+          <input type="number" step="0.01" id="prodPrecioRef" value="0" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalNuevoProducto')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Trabajador -->
+  <dialog id="modalTrabajador" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Añadir Trabajador</h3>
+        <button onclick="cerrarDialog('modalTrabajador')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formTrabajador" onsubmit="guardarTrabajador(event)" class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Nombre Completo *</label>
+          <input type="text" id="trabNombre" required placeholder="Ej: Mauro Robles" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Rol / Especialidad</label>
+          <input type="text" id="trabRol" placeholder="Jornalero, Regador, Podador" value="Jornalero" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Tarifa por Hora (<span class="monedaLabel">S/.</span>)</label>
+          <input type="number" step="0.5" id="trabCostoHora" value="10.0" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalTrabajador')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Variedad -->
+  <dialog id="modalVariedad" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-brand-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Nueva Variedad / Cultivo</h3>
+        <button onclick="cerrarDialog('modalVariedad')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formVariedad" onsubmit="guardarVariedad(event)" class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Nombre de Variedad *</label>
+          <input type="text" id="varNombre" required placeholder="Ej: PALTA FUERTE 3" class="w-full px-3 py-2 border rounded-lg uppercase">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Especie General</label>
+          <input type="text" id="varEspecie" placeholder="Palta, Plátano, Cítrico" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Árboles</label>
+            <input type="number" id="varNumArboles" value="100" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Año Plant.</label>
+            <input type="number" id="varAnio" placeholder="Ej: 2024" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Hectáreas (Ha)</label>
+          <input type="number" step="0.1" id="varHectareas" value="0.5" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalVariedad')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-lg shadow">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Parcela -->
+  <dialog id="modalParcela" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-purple-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 class="font-bold text-sm">Nueva Parcela / Arriendo</h3>
+        <button onclick="cerrarDialog('modalParcela')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formParcela" onsubmit="guardarParcela(event)" class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Nombre del Lote *</label>
+          <input type="text" id="parcNombre" required placeholder="Ej: Lote Arriendo 3" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Hectáreas *</label>
+            <input type="number" step="0.1" id="parcHectareas" required placeholder="1.0" class="w-full px-3 py-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Condición</label>
+            <select id="parcTenencia" class="w-full px-3 py-2 border rounded-lg">
+              <option value="Alquilado">Alquilado</option>
+              <option value="Propio">Propio</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Propietario</label>
+          <input type="text" id="parcPropietario" placeholder="Ej: Propietario 1" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalParcela')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Notificación Toast -->
+  <div id="toast" class="fixed bottom-20 md:bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <div id="toastContent" class="bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-semibold">
+      <span id="toastIcon">✅</span>
+      <span id="toastMessage">Operación realizada con éxito</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
