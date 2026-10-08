@@ -1,10 +1,9 @@
-// Fundo El Castillo - Lógica Frontend Híbrida (Supabase Cloud + Local SQLite)
-let moneda = localStorage.getItem("agro_moneda") || "S/.";
-let currentView = "dashboard";
+// Configuración Supabase por defecto para Fundo El Castillo
+const DEFAULT_SUPABASE_URL = "https://myybakusxjpkvbrrcvmy.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_m7m0tA0rjzV9lte44czjOA_Sp_G9fG2";
 
-// Configuración Supabase
-let supabaseUrl = localStorage.getItem("fundo_supabase_url") || "";
-let supabaseKey = localStorage.getItem("fundo_supabase_key") || "";
+let supabaseUrl = localStorage.getItem("fundo_supabase_url") || DEFAULT_SUPABASE_URL;
+let supabaseKey = localStorage.getItem("fundo_supabase_key") || DEFAULT_SUPABASE_KEY;
 let supabaseClient = null;
 
 // Inicializar cliente Supabase si existen credenciales
