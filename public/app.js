@@ -2079,7 +2079,63 @@ function abrirModalVenta() { document.getElementById("modalVenta")?.showModal();
 
 function abrirModalTrabajador() {
   document.getElementById("formTrabajador")?.reset();
+  const cHora = document.getElementById("trabCostoHora");
+  if (cHora) cHora.value = "10.0";
+  const rolEl = document.getElementById("trabRol");
+  if (rolEl) rolEl.value = "Jornalero";
+  renderListaTrabajadoresModal();
   document.getElementById("modalTrabajador")?.showModal();
+}
+
+function renderListaTrabajadoresModal() {
+  const tbody = document.getElementById("listaTrabajadoresModalBody");
+  const badge = document.getElementById("cantTrabajadoresBadge");
+  const lista = globalData.trabajadores || [];
+  if (badge) badge.textContent = lista.length;
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  if (lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-slate-400 italic">No hay trabajadores registrados aún</td></tr>`;
+    return;
+  }
+
+  lista.forEach(t => {
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-bold text-slate-900">${t.nombre}</td>
+      <td class="py-2.5 px-2 text-slate-600">${t.rol || 'Jornalero'}</td>
+      <td class="py-2.5 px-2 text-right font-semibold text-slate-700">${formatMoney(t.costo_hora_defecto || 10)}/h</td>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap">
+        <button onclick="eliminarTrabajador(${t.id})" class="text-rose-600 hover:text-rose-800 p-1.5 rounded hover:bg-rose-50 transition" title="Eliminar trabajador">
+          🗑️
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function eliminarTrabajador(id) {
+  const trab = (globalData.trabajadores || []).find(t => t.id == id);
+  if (!trab) return;
+
+  const jornalesCount = (globalData.jornales || []).filter(j => j.trabajador_id == id).length;
+  let confirmMsg = `¿Deseas eliminar al trabajador "${trab.nombre}"?`;
+  if (jornalesCount > 0) {
+    confirmMsg += `\n\n⚠️ Advertencia: Este trabajador tiene ${jornalesCount} registro(s) de jornales en el sistema.`;
+  }
+
+  if (!confirm(confirmMsg)) return;
+
+  const ok = await dataDelete("trabajadores", id);
+  if (ok) {
+    mostrarToast(`Trabajador "${trab.nombre}" eliminado`, "🗑️");
+    await cargarTrabajadores();
+    renderListaTrabajadoresModal();
+    cargarMatrizMensualJornales();
+  }
 }
 
 function abrirModalJornal() {
@@ -2510,18 +2566,22 @@ async function guardarTrabajador(e) {
 
   const res = await dataInsert("trabajadores", data);
   if (res.success) {
-    cerrarDialog("modalTrabajador");
-    document.getElementById("formTrabajador").reset();
-    mostrarToast(`Trabajador ${nom} registrado con éxito`, "👨‍🌾");
+    document.getElementById("formTrabajador")?.reset();
+    const cHora = document.getElementById("trabCostoHora");
+    if (cHora) cHora.value = "10.0";
+    const rolEl = document.getElementById("trabRol");
+    if (rolEl) rolEl.value = "Jornalero";
+    mostrarToast(`Trabajador "${nom}" registrado con éxito`, "👨‍🌾");
     await cargarTrabajadores();
-    if (res.id) {
+    renderListaTrabajadoresModal();
+    const newId = res.id || (res.data && res.data.id);
+    if (newId) {
       const sel = document.getElementById("jornalTrabajadorId");
       if (sel) {
-        sel.value = res.id;
-        actualizarPrecioHoraTrabajador(res.id);
+        sel.value = newId;
+        actualizarPrecioHoraTrabajador(newId);
       }
     }
-    actualizarDatos();
   }
 }
 
