@@ -133,7 +133,38 @@ function navigate(viewName) {
   }
 }
 
-// ================= CAPA DE DATOS HÍBRIDA (SUPABASE / LOCAL REST) =================
+// Catálogo por defecto de 45 productos fitosanitarios y fertilizantes
+const DEFAULT_PRODUCTOS_LIST = [
+  'ABONO FOLIAR', 'ABONO ORGANICO', 'ACEITE AGRICOLA (FGA)', 'ACIDO FOLICO', 'ADHERENTE SILICONADO',
+  'AKRON', 'ALGAS MARINAS', 'SULFATO DE AMONIO', 'AMINOACIDOS', 'AZUFRE', 'BIOL', 'BORO',
+  'CAL OMEX', 'CALCIO BORO ZINC', 'CARBENDAZINA', 'CICLON', 'CITOQUININA', 'JABON POTASICO',
+  'EMAMECTIN BENZOATO', 'ACETAMIPRID', 'ENRAIZADOR', 'ERAIZER', 'FOSFATO DIAMONICO', 'FOSFORO',
+  'MELAZA', 'METOMIL', 'MICROELEMENTOS', 'NITRATO DE AMONIO', 'OLIGOMIX', 'PERMETRINA',
+  'SULFATO DE COBRE', 'SULFATO DE COBRE GRANULADO', 'SULFATO DE POTASIO', 'TIFON', 'YESO AGRICOLA',
+  'SANIX', 'ZINC', 'ABONO 20 20 20', 'SILICIO', 'PIRIMETANIL', 'BACILLUS', 'STIMULATE',
+  'VIGOR PHOS', 'REGULADOR PH', 'TABACAZO'
+];
+
+const DEFAULT_TRABAJADORES = [
+  { id: 1, nombre: "Mauro Robles", rol: "Jornalero / Campo", costo_hora_defecto: 10, activo: true },
+  { id: 2, nombre: "Kike", rol: "Jornalero / Campo", costo_hora_defecto: 10, activo: true }
+];
+
+function getLocalTable(table) {
+  try {
+    return JSON.parse(localStorage.getItem("fundo_tbl_" + table) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function setLocalTable(table, data) {
+  try {
+    localStorage.setItem("fundo_tbl_" + table, JSON.stringify(data));
+  } catch (e) {}
+}
+
+// ================= CAPA DE DATOS HÍBRIDA (SUPABASE / LOCAL REST / STORAGE) =================
 async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = true) {
   // 1. Si Supabase está activo
   if (supabaseClient) {
@@ -141,75 +172,74 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
       let query = supabaseClient.from(table).select(selectQuery);
       if (orderCol) query = query.order(orderCol, { ascending });
       const { data, error } = await query;
-      if (error) throw error;
-      return { success: true, data };
+      if (!error && Array.isArray(data)) {
+        if (data.length > 0) {
+          setLocalTable(table, data);
+          return { success: true, data };
+        } else {
+          const localData = getLocalTable(table);
+          if (localData.length > 0) {
+            return { success: true, data: localData };
+          }
+        }
+      }
     } catch (e) {
-      console.warn(`Error en Supabase leyendo ${table}, fallback local:`, e);
+      console.warn(`Error en Supabase leyendo ${table}, usando fallback:`, e);
     }
   }
 
-  // 2. Si no hay Supabase o falló, usar API local de Python
-  const endpointMap = {
-    "parcelas": "parcelas",
-    "variedades": "variedades",
-    "productos": "productos",
-    "compras_productos": "compras",
-    "tratamientos": "tratamientos",
-    "ventas": "ventas",
-    "ingresos_financieros": "ingresos-financieros",
-    "gastos_especificos": "gastos-especificos",
-    "gastos_generales": "gastos-generales",
-    "trabajadores": "trabajadores",
-    "jornales": "jornales"
-  };
-
-  const ep = endpointMap[table] || table;
-  try {
-    const res = await fetch(`/api/${ep}`);
-    return await res.json();
-  } catch (err) {
-    return { success: false, data: [] };
+  // 2. Fallback a LocalStorage y catálogos iniciales
+  let localData = getLocalTable(table);
+  if (table === "productos" && localData.length === 0) {
+    localData = DEFAULT_PRODUCTOS_LIST.map((nom, idx) => ({
+      id: idx + 1,
+      nombre: nom,
+      categoria: "Fertilizante / Fitosanitario",
+      unidad: "Kg/L",
+      stock_anterior: 0,
+      stock_actual: 0,
+      precio_referencial: 0
+    }));
+    setLocalTable("productos", localData);
+  } else if (table === "trabajadores" && localData.length === 0) {
+    localData = [...DEFAULT_TRABAJADORES];
+    setLocalTable("trabajadores", localData);
   }
+
+  if (orderCol && localData.length > 0) {
+    localData.sort((a, b) => {
+      const valA = a[orderCol] ?? "";
+      const valB = b[orderCol] ?? "";
+      if (valA < valB) return ascending ? -1 : 1;
+      if (valA > valB) return ascending ? 1 : -1;
+      return 0;
+    });
+  }
+
+  return { success: true, data: localData };
 }
 
 async function dataInsert(table, record) {
+  if (!record.id) {
+    record.id = Date.now();
+  }
+
   if (supabaseClient) {
     try {
-      const { data, error } = await supabaseClient.from(table).insert([record]).select();
-      if (error) throw error;
-      return { success: true, id: data?.[0]?.id };
+      const { id, ...recordWithoutId } = record;
+      const { data, error } = await supabaseClient.from(table).insert([recordWithoutId]).select();
+      if (!error && data && data[0]?.id) {
+        record.id = data[0].id;
+      }
     } catch (e) {
-      console.error(`Error Supabase insertando en ${table}:`, e);
-      mostrarToast(`Error en Supabase: ${e.message}`, "❌");
-      return { success: false };
+      console.warn(`Supabase insert en ${table} no sincronizado (${e.message}), guardado localmente.`);
     }
   }
 
-  const endpointMap = {
-    "parcelas": "parcelas",
-    "variedades": "variedades",
-    "productos": "productos",
-    "compras_productos": "compras",
-    "tratamientos": "tratamientos",
-    "ventas": "ventas",
-    "ingresos_financieros": "ingresos-financieros",
-    "gastos_especificos": "gastos-especificos",
-    "gastos_generales": "gastos-generales",
-    "trabajadores": "trabajadores",
-    "jornales": "jornales"
-  };
-
-  const ep = endpointMap[table] || table;
-  try {
-    const res = await fetch(`/api/${ep}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(record)
-    });
-    return await res.json();
-  } catch (err) {
-    return { success: false };
-  }
+  const localList = getLocalTable(table);
+  localList.push(record);
+  setLocalTable(table, localList);
+  return { success: true, id: record.id };
 }
 
 async function dataDelete(table, id) {
@@ -217,76 +247,37 @@ async function dataDelete(table, id) {
 
   if (supabaseClient) {
     try {
-      const { error } = await supabaseClient.from(table).delete().eq("id", id);
-      if (error) throw error;
-      mostrarToast("Registro eliminado de Supabase", "🗑️");
-      actualizarDatos();
-      return true;
+      await supabaseClient.from(table).delete().eq("id", id);
     } catch (e) {
-      console.error(`Error Supabase eliminando en ${table}:`, e);
-      mostrarToast(`Error: ${e.message}`, "❌");
-      return false;
+      console.warn(`Supabase delete error en ${table}:`, e);
     }
   }
 
-  const endpointMap = {
-    "parcelas": "parcelas",
-    "variedades": "variedades",
-    "productos": "productos",
-    "compras_productos": "compras",
-    "tratamientos": "tratamientos",
-    "ventas": "ventas",
-    "ingresos_financieros": "ingresos-financieros",
-    "gastos_especificos": "gastos-especificos",
-    "gastos_generales": "gastos-generales",
-    "trabajadores": "trabajadores",
-    "jornales": "jornales"
-  };
+  const localList = getLocalTable(table);
+  const filtered = localList.filter(item => item.id != id);
+  setLocalTable(table, filtered);
 
-  const ep = endpointMap[table] || table;
-  try {
-    const res = await fetch(`/api/${ep}/${id}`, { method: "DELETE" });
-    const json = await res.json();
-    if (json.success) {
-      mostrarToast("Registro eliminado", "🗑️");
-      actualizarDatos();
-      return true;
-    }
-  } catch (err) {
-    console.error(err);
-  }
-  return false;
+  mostrarToast("Registro eliminado", "🗑️");
+  actualizarDatos();
+  return true;
 }
 
 async function dataUpdate(table, id, fields) {
   if (supabaseClient) {
     try {
-      const { error } = await supabaseClient.from(table).update(fields).eq("id", id);
-      if (error) throw error;
-      return true;
+      await supabaseClient.from(table).update(fields).eq("id", id);
     } catch (e) {
-      console.error(`Error Supabase actualizando en ${table}:`, e);
-      return false;
+      console.warn(`Supabase update error en ${table}:`, e);
     }
   }
 
-  const endpointMap = {
-    "variedades": "variedades",
-    "campanas": "campanas",
-    "productos": "productos"
-  };
-  const ep = endpointMap[table] || table;
-  try {
-    const res = await fetch(`/api/${ep}/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fields)
-    });
-    const json = await res.json();
-    return json.success;
-  } catch (err) {
-    return false;
+  const localList = getLocalTable(table);
+  const idx = localList.findIndex(item => item.id == id);
+  if (idx !== -1) {
+    localList[idx] = { ...localList[idx], ...fields };
+    setLocalTable(table, localList);
   }
+  return true;
 }
 
 // ================= GESTIÓN DE CAMPAÑAS AGRÍCOLAS =================
@@ -454,7 +445,6 @@ async function cargarTodosLosDatos() {
   await Promise.all([
     cargarVariedades(),
     cargarParcelas(),
-    cargarProductos(),
     cargarTrabajadores(),
     cargarVentas(),
     cargarGastosEspecificos(),
@@ -464,6 +454,9 @@ async function cargarTodosLosDatos() {
     cargarCompras()
   ]);
 
+  // Cargar productos y recalcular inventario valorizado después de tener compras y aplicaciones
+  await cargarProductos();
+  recalcularStockYValorizacion();
   calcularYRenderizarDashboard();
 }
 
@@ -635,13 +628,10 @@ function abrirModalEditarParcela(id) {
   document.getElementById("modalParcela")?.showModal();
 }
 
-async function cargarProductos() {
-  const res = await dataFetch("productos", "*", "nombre", true);
-  if (!res.success) return;
+function recalcularStockYValorizacion() {
+  let valorTotalAlmacen = 0;
 
-  // Traspaso continuo de inventario entre campañas:
-  // Saldo real = Stock Inicial + Compras Totales - Tratamientos/Aplicaciones Totales
-  res.data.forEach(p => {
+  (globalData.productos || []).forEach(p => {
     const comprasProd = (globalData.compras || []).filter(c => c.producto_id == p.id);
     const totComprado = comprasProd.reduce((a, b) => a + (Number(b.cantidad) || 0), 0);
 
@@ -651,24 +641,52 @@ async function cargarProductos() {
     const stockInicial = Number(p.stock_anterior) || 0;
     p.total_comprado = totComprado;
     p.total_aplicado = totAplicado;
-    if (totComprado > 0 || totAplicado > 0) {
-      p.stock_actual = Math.max(0, stockInicial + totComprado - totAplicado);
+    p.stock_actual = Math.max(0, stockInicial + totComprado - totAplicado);
+
+    // Si tiene compras registradas con precio, actualizar precio de referencia si era 0
+    if (comprasProd.length > 0) {
+      const conPrecio = comprasProd.filter(c => Number(c.precio_unitario) > 0);
+      if (conPrecio.length > 0) {
+        const ult = conPrecio[conPrecio.length - 1];
+        if (ult && ult.precio_unitario > 0 && (!p.precio_referencial || p.precio_referencial == 0)) {
+          p.precio_referencial = Number(ult.precio_unitario);
+        }
+      }
     }
+
+    const valor = (Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0);
+    valorTotalAlmacen += valor;
   });
 
+  const badge = document.getElementById("badgeValorAlmacen");
+  if (badge) badge.textContent = formatMoney(valorTotalAlmacen);
+
+  const kpiStock = document.getElementById("kpiValorStock");
+  if (kpiStock) kpiStock.textContent = formatMoney(valorTotalAlmacen);
+
+  return valorTotalAlmacen;
+}
+
+async function cargarProductos() {
+  const res = await dataFetch("productos", "*", "nombre", true);
+  if (!res.success) return;
   globalData.productos = res.data;
+
+  recalcularStockYValorizacion();
 
   const selects = ["trataProductoId", "compraProductoId"];
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
+    const prevVal = el.value;
     el.innerHTML = "";
-    res.data.forEach(p => {
-      el.innerHTML += `<option value="${p.id}" data-precio="${p.precio_referencial}" data-stock="${p.stock_actual}">${p.nombre} (Stock disponible: ${p.stock_actual} ${p.unidad})</option>`;
+    globalData.productos.forEach(p => {
+      el.innerHTML += `<option value="${p.id}" data-precio="${p.precio_referencial}" data-stock="${p.stock_actual}">${p.nombre} (Stock: ${formatNum(p.stock_actual, 1)} ${p.unidad})</option>`;
     });
+    if (prevVal) el.value = prevVal;
   });
 
-  renderTablaInsumos(res.data);
+  renderTablaInsumos(globalData.productos);
 }
 
 function renderTablaInsumos(productos) {
@@ -679,9 +697,9 @@ function renderTablaInsumos(productos) {
   let valorTotalAlmacen = 0;
 
   productos.forEach(p => {
-    const valor = (p.stock_actual || 0) * (p.precio_referencial || 0);
+    const valor = (Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0);
     valorTotalAlmacen += valor;
-    const stockClass = p.stock_actual <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
+    const stockClass = (Number(p.stock_actual) || 0) <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
 
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
@@ -690,8 +708,8 @@ function renderTablaInsumos(productos) {
       <td class="py-2 px-2 text-slate-500">${p.unidad}</td>
       <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_comprado || 0, 1)}</td>
       <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_aplicado || 0, 1)}</td>
-      <td class="py-2 px-3 text-right ${stockClass}">${formatNum(p.stock_actual, 1)}</td>
-      <td class="py-2 px-3 text-right text-slate-600">${formatMoney(p.precio_referencial)}</td>
+      <td class="py-2 px-3 text-right ${stockClass}">${formatNum(p.stock_actual || 0, 1)}</td>
+      <td class="py-2 px-3 text-right text-slate-600">${formatMoney(p.precio_referencial || 0)}</td>
       <td class="py-2 px-3 text-right font-semibold text-slate-900">${formatMoney(valor)}</td>
       <td class="py-2 px-2 text-center">
         <button onclick="dataDelete('productos', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
@@ -700,7 +718,10 @@ function renderTablaInsumos(productos) {
     tbody.appendChild(tr);
   });
 
-  document.getElementById("badgeValorAlmacen").textContent = formatMoney(valorTotalAlmacen);
+  const badge = document.getElementById("badgeValorAlmacen");
+  if (badge) badge.textContent = formatMoney(valorTotalAlmacen);
+  const kpiStock = document.getElementById("kpiValorStock");
+  if (kpiStock) kpiStock.textContent = formatMoney(valorTotalAlmacen);
 }
 
 function filtrarInsumos() {
@@ -718,7 +739,8 @@ async function cargarTrabajadores() {
   if (sel) {
     sel.innerHTML = "";
     res.data.forEach(t => {
-      sel.innerHTML += `<option value="${t.id}" data-costo="${t.costo_hora_defecto}">${t.nombre} (${t.rol})</option>`;
+      // Mostrar ÚNICAMENTE el nombre del trabajador a la hora de escogerlo
+      sel.innerHTML += `<option value="${t.id}" data-costo="${t.costo_hora_defecto}">${t.nombre}</option>`;
     });
   }
 }
@@ -878,9 +900,9 @@ function renderTablaJornales(lista) {
       <td class="py-2.5 px-3 text-right font-semibold text-slate-900">${j.horas} hrs</td>
       <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(j.precio_hora)}</td>
       <td class="py-2.5 px-3 text-right font-black text-blue-700">${formatMoney(j.total)}</td>
-      <td class="py-2.5 px-3 text-slate-700 font-medium">${j.labor || '-'}</td>
-      <td class="py-2.5 px-3 text-center">
-        <button onclick="dataDelete('jornales', ${j.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarJornal(${j.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar jornal">✏️</button>
+        <button onclick="dataDelete('jornales', ${j.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar jornal">🗑️</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -966,6 +988,7 @@ function calcularYRenderizarDashboard() {
   const especificos = globalData.gastosEspecificos.filter(filtroPorCampana);
   const generales = globalData.gastosGenerales.filter(filtroPorCampana);
   const jornales = globalData.jornales.filter(filtroPorCampana);
+  const compras = globalData.compras.filter(filtroPorCampana);
   const variedades = globalData.variedades;
 
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
@@ -975,9 +998,11 @@ function calcularYRenderizarDashboard() {
   const totalGenerales = generales.reduce((acc, g) => acc + (Number(g.total) || 0), 0);
   const totalJornales = jornales.reduce((acc, j) => acc + (Number(j.total) || 0), 0);
   const totalHoras = jornales.reduce((acc, j) => acc + (Number(j.horas) || 0), 0);
+  const totalCompras = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
 
   const totalIngresos = totalVentas;
-  const totalGastos = totalTratamientos + totalEspecificos + totalGenerales + totalJornales;
+  // Contabilizar compras de productos de almacén dentro de egresos totales
+  const totalGastos = totalCompras + totalTratamientos + totalEspecificos + totalGenerales + totalJornales;
   const resultadoNeto = totalIngresos - totalGastos;
 
   const totalHa = variedades.reduce((acc, v) => acc + (Number(v.hectareas) || 0), 0) || 1.0;
@@ -1000,6 +1025,9 @@ function calcularYRenderizarDashboard() {
 
   document.getElementById("kpiJornalesMonto").textContent = formatMoney(totalJornales);
   document.getElementById("kpiTotalHoras").textContent = formatNum(totalHoras, 0);
+
+  // Actualizar Valor Stock
+  recalcularStockYValorizacion();
 
   const haTexto = (totalHa % 1 === 0) ? `${Math.round(totalHa)} hectáreas` : `${formatNum(totalHa, 1)} hectáreas`;
   document.getElementById("sbTotalHectareas").textContent = haTexto;
@@ -1038,7 +1066,8 @@ function calcularYRenderizarDashboard() {
     const gastoJor = vJor.reduce((a, b) => a + (Number(b.total) || 0), 0);
 
     const prorrateoGen = totalHa > 0 ? (ha / totalHa) * totalGenerales : 0;
-    const totalCostosV = gastoTrat + gastoEsp + gastoJor + prorrateoGen;
+    const prorrateoCompras = totalHa > 0 ? (ha / totalHa) * totalCompras : 0;
+    const totalCostosV = gastoTrat + gastoEsp + gastoJor + prorrateoGen + prorrateoCompras;
     const netoV = ingV - totalCostosV;
     const rentArbol = arboles > 0 ? netoV / arboles : null;
 
@@ -1053,7 +1082,7 @@ function calcularYRenderizarDashboard() {
       gasto_quimicos: gastoTrat,
       gasto_especificos: gastoEsp,
       gasto_jornales: gastoJor,
-      gasto_generales_prorrateado: prorrateoGen,
+      gasto_generales_prorrateado: prorrateoGen + prorrateoCompras,
       total_gastos: totalCostosV,
       resultado_neto: netoV,
       resultado_por_arbol: rentArbol
@@ -1062,7 +1091,8 @@ function calcularYRenderizarDashboard() {
 
   renderGraficoEspecies(resumenVariedades);
   renderGraficoGastos({
-    "Insumos / Fitosanitarios": totalTratamientos,
+    "Compras de Insumos": totalCompras,
+    "Tratamientos / Aplicaciones": totalTratamientos,
     "Jornales / Mano de Obra": totalJornales,
     "Gastos Específicos": totalEspecificos,
     "Gastos Generales / Arriendos": totalGenerales
@@ -1082,7 +1112,7 @@ function renderTablaBalanceCampanas() {
   const aniosSet = new Set();
   (globalData.campanas || []).forEach(c => { if (c.anio) aniosSet.add(Number(c.anio)); });
   
-  [...globalData.ventas, ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales].forEach(item => {
+  [...globalData.ventas, ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales, ...globalData.compras].forEach(item => {
     if (item && item.fecha) {
       const y = parseInt(item.fecha.substring(0, 4), 10);
       if (!isNaN(y) && y > 2000 && y < 2100) aniosSet.add(y);
@@ -1112,19 +1142,22 @@ function renderTablaBalanceCampanas() {
     const jList = globalData.jornales.filter(filtroAnio);
     const geList = globalData.gastosEspecificos.filter(filtroAnio);
     const ggList = globalData.gastosGenerales.filter(filtroAnio);
+    const cList = globalData.compras.filter(filtroAnio);
 
     const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
     const kilos = vList.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
     const insumos = tList.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
+    const compras = cList.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
     const jornales = jList.reduce((acc, j) => acc + (Number(j.total) || 0), 0);
     const especificos = geList.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
     const generales = ggList.reduce((acc, g) => acc + (Number(g.total) || 0), 0);
     const gastosCampo = especificos + generales;
-    const egresos = insumos + jornales + gastosCampo;
+    const totalInsumosYCompras = insumos + compras;
+    const egresos = totalInsumosYCompras + jornales + gastosCampo;
     const neto = ingresos - egresos;
 
     granTotalIngresos += ingresos;
-    granTotalInsumos += insumos;
+    granTotalInsumos += totalInsumosYCompras;
     granTotalJornales += jornales;
     granTotalCampo += gastosCampo;
     granTotalEgresos += egresos;
@@ -1150,7 +1183,7 @@ function renderTablaBalanceCampanas() {
         ${esActiva ? '<span class="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.5 rounded ml-1">SELECCIONADA</span>' : ''}
       </td>
       <td class="py-3 px-3 text-right font-black text-emerald-700 bg-emerald-50/30">${formatMoney(ingresos)}</td>
-      <td class="py-3 px-3 text-right text-slate-700">${formatMoney(insumos)}</td>
+      <td class="py-3 px-3 text-right text-slate-700">${formatMoney(totalInsumosYCompras)}</td>
       <td class="py-3 px-3 text-right text-slate-700">${formatMoney(jornales)}</td>
       <td class="py-3 px-3 text-right text-slate-700">${formatMoney(gastosCampo)}</td>
       <td class="py-3 px-3 text-right font-bold text-rose-700 bg-rose-50/30">${formatMoney(egresos)}</td>
@@ -1465,8 +1498,80 @@ function cargarMatrizMensualJornales() {
 // ================= MODALES Y ACCIONES =================
 function abrirModalRegistroRapido() { document.getElementById("modalRegistroRapido")?.showModal(); }
 function abrirModalVenta() { document.getElementById("modalVenta")?.showModal(); }
-function abrirModalJornal() { document.getElementById("modalJornal")?.showModal(); }
-function abrirModalTratamiento() { document.getElementById("modalTratamiento")?.showModal(); }
+
+function abrirModalTrabajador() {
+  document.getElementById("formTrabajador")?.reset();
+  document.getElementById("modalTrabajador")?.showModal();
+}
+
+function abrirModalJornal() {
+  const modalTitle = document.getElementById("modalJornalTitle");
+  if (modalTitle) modalTitle.textContent = "Registrar Jornal de Mano de Obra";
+  document.getElementById("formJornal")?.reset();
+  const editInput = document.getElementById("jornalEditId");
+  if (editInput) editInput.value = "";
+
+  if (campanaActiva && campanaActiva !== "todas") {
+    const hoy = new Date();
+    const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dd = String(hoy.getDate()).padStart(2, '0');
+    const fInput = document.getElementById("jornalFecha");
+    if (fInput) fInput.value = `${campanaActiva}-${mm}-${dd}`;
+  } else {
+    initFechasHoy();
+  }
+
+  const trabSel = document.getElementById("jornalTrabajadorId");
+  if (trabSel && trabSel.value) {
+    actualizarPrecioHoraTrabajador(trabSel.value);
+  }
+  calcularTotalJornal();
+  document.getElementById("modalJornal")?.showModal();
+}
+
+function abrirModalEditarJornal(id) {
+  const j = globalData.jornales.find(item => item.id == id);
+  if (!j) return;
+
+  const modalTitle = document.getElementById("modalJornalTitle");
+  if (modalTitle) modalTitle.textContent = "Editar Jornal de Mano de Obra";
+
+  const editInput = document.getElementById("jornalEditId");
+  if (editInput) editInput.value = j.id;
+
+  const fInput = document.getElementById("jornalFecha");
+  if (fInput) fInput.value = j.fecha || "";
+
+  const trabSel = document.getElementById("jornalTrabajadorId");
+  if (trabSel && j.trabajador_id) trabSel.value = j.trabajador_id;
+
+  const varSel = document.getElementById("jornalVariedadId");
+  if (varSel) varSel.value = j.variedad_id || "";
+
+  const hInput = document.getElementById("jornalHoras");
+  if (hInput) hInput.value = j.horas ?? "";
+
+  const pInput = document.getElementById("jornalPrecioHora");
+  if (pInput) pInput.value = j.precio_hora ?? "";
+
+  const labInput = document.getElementById("jornalLabor");
+  if (labInput) labInput.value = j.labor || "";
+
+  const notInput = document.getElementById("jornalNotas");
+  if (notInput) notInput.value = j.notas || "";
+
+  calcularTotalJornal();
+  document.getElementById("modalJornal")?.showModal();
+}
+
+function abrirModalTratamiento() {
+  const sel = document.getElementById("trataProductoId");
+  if (sel && sel.value) {
+    actualizarPrecioInsumo(sel.value);
+  }
+  document.getElementById("modalTratamiento")?.showModal();
+}
+
 function abrirModalGastoGeneral() { document.getElementById("modalGastoGeneral")?.showModal(); }
 function abrirModalGastoEspecifico() { document.getElementById("modalGastoEspecifico")?.showModal(); }
 function abrirModalCompraInsumo() { document.getElementById("modalCompraInsumo")?.showModal(); }
@@ -1525,8 +1630,21 @@ function calcularTotalCompra() {
 function actualizarPrecioInsumo(productoId) {
   const p = globalData.productos.find(item => item.id == productoId);
   if (p) {
-    document.getElementById("trataPrecioUnitario").value = p.precio_referencial || 0;
-    document.getElementById("trataStockInfo").textContent = `Stock en almacén: ${p.stock_actual} ${p.unidad}`;
+    let costoUnitario = Number(p.precio_referencial) || 0;
+    // Si hay compras registradas para este producto, tomar el costo unitario registrado
+    const comprasProd = (globalData.compras || []).filter(c => c.producto_id == productoId && Number(c.precio_unitario) > 0);
+    if (comprasProd.length > 0) {
+      const ult = comprasProd[comprasProd.length - 1];
+      if (ult && Number(ult.precio_unitario) > 0) {
+        costoUnitario = Number(ult.precio_unitario);
+      }
+    }
+
+    document.getElementById("trataPrecioUnitario").value = costoUnitario;
+    const info = document.getElementById("trataStockInfo");
+    if (info) {
+      info.textContent = `Stock en almacén: ${formatNum(p.stock_actual, 1)} ${p.unidad} (Costo en stock: ${formatMoney(costoUnitario)}/${p.unidad})`;
+    }
     calcularTotalTratamiento();
   }
 }
@@ -1541,7 +1659,7 @@ async function guardarVenta(e) {
     variedad_id: parseInt(document.getElementById("ventaVariedadId").value),
     kilos: k,
     precio_kilo: p,
-    total: k * p,
+    total: Math.round(k * p * 100) / 100,
     comprador: document.getElementById("ventaComprador").value,
     nro_boleta: document.getElementById("ventaComprobante").value,
     cobrado: document.getElementById("ventaCobrado").checked,
@@ -1560,59 +1678,99 @@ async function guardarVenta(e) {
 
 async function guardarJornal(e) {
   e.preventDefault();
-  const h = parseFloat(document.getElementById("jornalHoras").value);
-  const p = parseFloat(document.getElementById("jornalPrecioHora").value);
+  const editId = document.getElementById("jornalEditId")?.value;
+  const hRaw = document.getElementById("jornalHoras").value || "0";
+  const pRaw = document.getElementById("jornalPrecioHora").value || "0";
+  const h = parseFloat(String(hRaw).replace(',', '.')) || 0;
+  const p = parseFloat(String(pRaw).replace(',', '.')) || 0;
+  const trabId = parseInt(document.getElementById("jornalTrabajadorId").value);
+  const trab = globalData.trabajadores.find(t => t.id == trabId);
+  const varId = document.getElementById("jornalVariedadId").value ? parseInt(document.getElementById("jornalVariedadId").value) : null;
+  const varItem = globalData.variedades.find(v => v.id == varId);
+
   const data = {
     fecha: document.getElementById("jornalFecha").value,
-    trabajador_id: parseInt(document.getElementById("jornalTrabajadorId").value),
-    variedad_id: document.getElementById("jornalVariedadId").value ? parseInt(document.getElementById("jornalVariedadId").value) : null,
+    trabajador_id: trabId,
+    trabajador_nombre: trab ? trab.nombre : "",
+    variedad_id: varId,
+    variedad_nombre: varItem ? varItem.nombre : "General / Campo",
     horas: h,
     precio_hora: p,
-    total: h * p,
-    labor: document.getElementById("jornalLabor").value,
-    notas: document.getElementById("jornalNotas").value
+    total: Math.round(h * p * 100) / 100,
+    labor: document.getElementById("jornalLabor").value.trim(),
+    notas: document.getElementById("jornalNotas").value.trim()
   };
 
-  const res = await dataInsert("jornales", data);
-  if (res.success) {
-    cerrarDialog("modalJornal");
-    document.getElementById("formJornal").reset();
-    initFechasHoy();
-    mostrarToast("Jornal guardado", "👨‍🌾");
-    actualizarDatos();
+  if (editId) {
+    const ok = await dataUpdate("jornales", editId, data);
+    if (ok) {
+      cerrarDialog("modalJornal");
+      document.getElementById("formJornal").reset();
+      document.getElementById("jornalEditId").value = "";
+      initFechasHoy();
+      mostrarToast("Jornal actualizado con éxito", "✅");
+      actualizarDatos();
+    }
+  } else {
+    const res = await dataInsert("jornales", data);
+    if (res.success) {
+      cerrarDialog("modalJornal");
+      document.getElementById("formJornal").reset();
+      document.getElementById("jornalEditId").value = "";
+      initFechasHoy();
+      mostrarToast("Jornal registrado con éxito", "👨‍🌾");
+      actualizarDatos();
+    }
   }
 }
 
 async function guardarTratamiento(e) {
   e.preventDefault();
-  const c = parseFloat(document.getElementById("trataCantidad").value);
-  const p = parseFloat(document.getElementById("trataPrecioUnitario").value);
+  const cRaw = document.getElementById("trataCantidad").value || "0";
+  const pRaw = document.getElementById("trataPrecioUnitario").value || "0";
+  const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
+  const p = parseFloat(String(pRaw).replace(',', '.')) || 0;
+  const prodId = parseInt(document.getElementById("trataProductoId").value);
+  const prod = globalData.productos.find(pr => pr.id == prodId);
+  const varId = parseInt(document.getElementById("trataVariedadId").value);
+  const varItem = globalData.variedades.find(v => v.id == varId);
+
   const data = {
     fecha: document.getElementById("trataFecha").value,
-    variedad_id: parseInt(document.getElementById("trataVariedadId").value),
-    producto_id: parseInt(document.getElementById("trataProductoId").value),
+    variedad_id: varId,
+    variedad_nombre: varItem ? varItem.nombre : "",
+    producto_id: prodId,
+    producto_nombre: prod ? prod.nombre : "",
+    producto_unidad: prod ? prod.unidad : "Kg/L",
     cantidad: c,
     precio_unitario: p,
-    total: c * p,
-    notas: document.getElementById("trataNotas").value
+    total: Math.round(c * p * 100) / 100,
+    notas: document.getElementById("trataNotas").value.trim()
   };
 
   const res = await dataInsert("tratamientos", data);
   if (res.success) {
+    if (prod) {
+      const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) - c);
+      prod.stock_actual = nuevoStock;
+      await dataUpdate("productos", prod.id, { stock_actual: nuevoStock });
+    }
     cerrarDialog("modalTratamiento");
     document.getElementById("formTratamiento").reset();
     initFechasHoy();
-    mostrarToast("Aplicación registrada", "🧪");
+    mostrarToast("Aplicación registrada y stock descontado", "🧪");
     actualizarDatos();
   }
 }
 
 async function guardarGastoGeneral(e) {
   e.preventDefault();
+  const totalRaw = document.getElementById("ggTotal")?.value || "0";
+  const total = parseFloat(String(totalRaw).replace(',', '.')) || 0;
   const data = {
     fecha: document.getElementById("ggFecha").value,
     concepto: document.getElementById("ggConcepto").value,
-    total: parseFloat(document.getElementById("ggTotal").value),
+    total: total,
     categoria: document.getElementById("ggCategoria").value,
     empresa: document.getElementById("ggEmpresa").value,
     nro_factura: document.getElementById("ggFactura").value
@@ -1655,21 +1813,38 @@ async function guardarGastoEspecifico(e) {
 
 async function guardarCompraInsumo(e) {
   e.preventDefault();
-  const c = parseFloat(document.getElementById("compraCantidad").value);
-  const p = parseFloat(document.getElementById("compraPrecioUnitario").value);
+  const cRaw = document.getElementById("compraCantidad").value || "0";
+  const pRaw = document.getElementById("compraPrecioUnitario").value || "0";
+  const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
+  const p = parseFloat(String(pRaw).replace(',', '.')) || 0;
+  const prodId = parseInt(document.getElementById("compraProductoId").value);
+  const prod = globalData.productos.find(pr => pr.id == prodId);
+
   const data = {
     fecha: document.getElementById("compraFecha").value,
-    producto_id: parseInt(document.getElementById("compraProductoId").value),
+    producto_id: prodId,
+    producto_nombre: prod ? prod.nombre : "",
+    producto_unidad: prod ? prod.unidad : "Kg/L",
     cantidad: c,
     precio_unitario: p,
-    total: c * p,
-    proveedor: document.getElementById("compraProveedor").value,
-    nro_factura: document.getElementById("compraFactura").value,
+    total: Math.round(c * p * 100) / 100,
+    proveedor: document.getElementById("compraProveedor").value.trim(),
+    nro_factura: document.getElementById("compraFactura").value.trim(),
     pagado: document.getElementById("compraPagado").checked
   };
 
   const res = await dataInsert("compras_productos", data);
   if (res.success) {
+    if (prod) {
+      const nuevoStock = (Number(prod.stock_actual) || 0) + c;
+      const nuevoPrecio = p > 0 ? p : (Number(prod.precio_referencial) || 0);
+      prod.stock_actual = nuevoStock;
+      prod.precio_referencial = nuevoPrecio;
+      await dataUpdate("productos", prod.id, {
+        stock_actual: nuevoStock,
+        precio_referencial: nuevoPrecio
+      });
+    }
     cerrarDialog("modalCompraInsumo");
     document.getElementById("formCompraInsumo").reset();
     initFechasHoy();
@@ -1680,12 +1855,16 @@ async function guardarCompraInsumo(e) {
 
 async function guardarNuevoProducto(e) {
   e.preventDefault();
+  const stRaw = document.getElementById("prodStockInicial").value || "0";
+  const prRaw = document.getElementById("prodPrecioRef").value || "0";
+  const st = parseFloat(String(stRaw).replace(',', '.')) || 0;
+  const pr = parseFloat(String(prRaw).replace(',', '.')) || 0;
   const data = {
     nombre: document.getElementById("prodNombre").value.trim().toUpperCase(),
     unidad: document.getElementById("prodUnidad").value,
-    stock_anterior: parseFloat(document.getElementById("prodStockInicial").value) || 0,
-    stock_actual: parseFloat(document.getElementById("prodStockInicial").value) || 0,
-    precio_referencial: parseFloat(document.getElementById("prodPrecioRef").value) || 0
+    stock_anterior: st,
+    stock_actual: st,
+    precio_referencial: pr
   };
 
   const res = await dataInsert("productos", data);
@@ -1699,17 +1878,35 @@ async function guardarNuevoProducto(e) {
 
 async function guardarTrabajador(e) {
   e.preventDefault();
+  const nom = document.getElementById("trabNombre").value.trim();
+  if (!nom) {
+    mostrarToast("Ingresa el nombre del trabajador", "⚠️");
+    return;
+  }
+  const rol = document.getElementById("trabRol").value.trim() || "Jornalero";
+  const cRaw = document.getElementById("trabCostoHora").value || "10";
+  const c = parseFloat(String(cRaw).replace(',', '.')) || 10;
+
   const data = {
-    nombre: document.getElementById("trabNombre").value.trim(),
-    rol: document.getElementById("trabRol").value,
-    costo_hora_defecto: parseFloat(document.getElementById("trabCostoHora").value) || 10
+    nombre: nom,
+    rol: rol,
+    costo_hora_defecto: c,
+    activo: true
   };
 
   const res = await dataInsert("trabajadores", data);
   if (res.success) {
     cerrarDialog("modalTrabajador");
     document.getElementById("formTrabajador").reset();
-    mostrarToast("Trabajador registrado", "👨‍🌾");
+    mostrarToast(`Trabajador ${nom} registrado con éxito`, "👨‍🌾");
+    await cargarTrabajadores();
+    if (res.id) {
+      const sel = document.getElementById("jornalTrabajadorId");
+      if (sel) {
+        sel.value = res.id;
+        actualizarPrecioHoraTrabajador(res.id);
+      }
+    }
     actualizarDatos();
   }
 }
