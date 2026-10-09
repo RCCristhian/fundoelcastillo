@@ -1304,7 +1304,7 @@ function renderTablaIngresosFinancieros(lista) {
   if (kpiCant) kpiCant.textContent = `${cantidad} movimiento${cantidad === 1 ? '' : 's'}`;
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400 italic">No hay registros de ingresos financieros en esta campaña</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400 italic">No hay registros de ingresos financieros en esta campaña</td></tr>`;
     return;
   }
 
@@ -1314,8 +1314,7 @@ function renderTablaIngresosFinancieros(lista) {
     tr.innerHTML = `
       <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${inf.fecha}</td>
       <td class="py-2.5 px-3 font-bold text-slate-900">${inf.concepto || '-'}</td>
-      <td class="py-2.5 px-3"><span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">${inf.categoria || 'Ingreso Financiero'}</span></td>
-      <td class="py-2.5 px-3 text-slate-700">${inf.pagador || '-'}</td>
+      <td class="py-2.5 px-3 text-slate-700 font-medium">${inf.pagador || '-'}</td>
       <td class="py-2.5 px-3 text-right font-black text-amber-700">${formatMoney(inf.total)}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${inf.nro_factura || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 max-w-[160px] truncate" title="${inf.notas || ''}">${inf.notas || '-'}</td>
@@ -1356,7 +1355,6 @@ function abrirModalEditarIngresoFinanciero(id) {
   document.getElementById("formIngresoFinanciero")?.reset();
   document.getElementById("ingFinId").value = item.id;
   document.getElementById("ingFinFecha").value = item.fecha || "";
-  document.getElementById("ingFinCategoria").value = item.categoria || "Otro Ingreso";
   document.getElementById("ingFinConcepto").value = item.concepto || "";
   document.getElementById("ingFinTotal").value = item.total ?? "";
   document.getElementById("ingFinPagador").value = item.pagador || "";
@@ -1374,7 +1372,6 @@ async function guardarIngresoFinanciero(e) {
   e.preventDefault();
   const id = document.getElementById("ingFinId")?.value;
   const fecha = document.getElementById("ingFinFecha").value;
-  const categoria = document.getElementById("ingFinCategoria").value;
   const concepto = document.getElementById("ingFinConcepto").value.trim();
   const totRaw = document.getElementById("ingFinTotal").value;
   const total = parseFloat(String(totRaw).replace(',', '.')) || 0;
@@ -1384,7 +1381,6 @@ async function guardarIngresoFinanciero(e) {
 
   const record = {
     fecha,
-    categoria,
     concepto,
     total,
     pagador,
