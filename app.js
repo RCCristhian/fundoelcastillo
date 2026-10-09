@@ -779,7 +779,7 @@ async function cargarTrabajadores() {
 function actualizarPrecioHoraTrabajador(trabajadorId) {
   const t = globalData.trabajadores.find(item => item.id == trabajadorId);
   if (t) {
-    document.getElementById("jornalPrecioHora").value = t.costo_hora_defecto || 10;
+    document.getElementById("jornalPrecioHora").value = t.costo_hora_defecto || 60;
     calcularTotalJornal();
   }
 }
@@ -1430,15 +1430,19 @@ function renderTablaJornales(lista) {
     const trabNombre = j.trabajador_nombre || trab?.nombre || "Trabajador";
     const varNombre = j.variedad_nombre || varItem?.nombre || "General / Campo";
 
+    const cantJornales = Number(j.horas) || 1;
+    const txtJornales = cantJornales === 1 ? '1 jornal' : `${cantJornales} jornales`;
+
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
     tr.innerHTML = `
       <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${j.fecha}</td>
       <td class="py-2.5 px-3 font-bold text-slate-900">${trabNombre}</td>
       <td class="py-2.5 px-3 text-slate-700">${varNombre}</td>
-      <td class="py-2.5 px-3 text-right font-semibold text-slate-900">${j.horas} hrs</td>
-      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(j.precio_hora)}</td>
+      <td class="py-2.5 px-3 text-right font-bold text-slate-900">${txtJornales}</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(j.precio_hora || 0)}</td>
       <td class="py-2.5 px-3 text-right font-black text-blue-700">${formatMoney(j.total)}</td>
+      <td class="py-2.5 px-3 text-slate-600">${j.labor || '-'}</td>
       <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
         <button onclick="abrirModalEditarJornal(${j.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar jornal">✏️</button>
         <button onclick="dataDelete('jornales', ${j.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar jornal">🗑️</button>
@@ -1570,7 +1574,7 @@ function calcularYRenderizarDashboard() {
   }
 
   document.getElementById("kpiJornalesMonto").textContent = formatMoney(totalJornales);
-  document.getElementById("kpiTotalHoras").textContent = formatNum(totalHoras, 0);
+  document.getElementById("kpiTotalHoras").textContent = (totalHoras % 1 === 0) ? formatNum(totalHoras, 0) : formatNum(totalHoras, 1);
 
   // Actualizar Valor Stock
   recalcularStockYValorizacion();
@@ -2025,14 +2029,14 @@ function cargarMatrizMensualJornales() {
     const totH = horasMes.reduce((a, b) => a + b, 0);
     const totC = costoMes.reduce((a, b) => a + b, 0);
 
-    // Fila Horas
+    // Fila Jornales
     const trH = document.createElement("tr");
     trH.className = "bg-white hover:bg-slate-50 border-t border-slate-200";
-    let hTd = `<td class="py-2 px-3 font-bold text-slate-800 border-r border-slate-200">${t.nombre} <span class="text-[9px] font-normal text-slate-500 block">Horas/Mes</span></td>`;
+    let hTd = `<td class="py-2 px-3 font-bold text-slate-800 border-r border-slate-200">${t.nombre} <span class="text-[9px] font-normal text-slate-500 block">Jornales/Mes</span></td>`;
     horasMes.forEach(h => {
       hTd += `<td class="py-2 px-1 text-center font-mono text-[10px] ${h > 0 ? 'font-bold text-blue-600 bg-blue-50/30' : 'text-slate-400'}">${h || 0}</td>`;
     });
-    hTd += `<td class="py-2 px-2.5 text-right font-bold text-slate-900 bg-slate-100">${totH} hrs</td>`;
+    hTd += `<td class="py-2 px-2.5 text-right font-bold text-slate-900 bg-slate-100">${totH} jor</td>`;
     trH.innerHTML = hTd;
     tbody.appendChild(trH);
 
@@ -2054,11 +2058,11 @@ function cargarMatrizMensualJornales() {
 
   const trTotH = document.createElement("tr");
   trTotH.className = "bg-slate-900 text-white font-bold border-t-2 border-slate-700";
-  let tHTd = `<td class="py-2 px-3 uppercase text-[9px]">TOTAL HORAS CAMPO</td>`;
+  let tHTd = `<td class="py-2 px-3 uppercase text-[9px]">TOTAL JORNALES CAMPO</td>`;
   totalesMesHoras.forEach(h => {
     tHTd += `<td class="py-2 px-1 text-center font-mono text-[10px]">${h}</td>`;
   });
-  tHTd += `<td class="py-2 px-2.5 text-right font-black bg-slate-950">${granH} hrs</td>`;
+  tHTd += `<td class="py-2 px-2.5 text-right font-black bg-slate-950">${granH} jor</td>`;
   trTotH.innerHTML = tHTd;
   tbody.appendChild(trTotH);
 
@@ -2080,7 +2084,7 @@ function abrirModalVenta() { document.getElementById("modalVenta")?.showModal();
 function abrirModalTrabajador() {
   document.getElementById("formTrabajador")?.reset();
   const cHora = document.getElementById("trabCostoHora");
-  if (cHora) cHora.value = "10.0";
+  if (cHora) cHora.value = "60.0";
   const rolEl = document.getElementById("trabRol");
   if (rolEl) rolEl.value = "Jornalero";
   renderListaTrabajadoresModal();
@@ -2106,7 +2110,7 @@ function renderListaTrabajadoresModal() {
     tr.innerHTML = `
       <td class="py-2.5 px-3 font-bold text-slate-900">${t.nombre}</td>
       <td class="py-2.5 px-2 text-slate-600">${t.rol || 'Jornalero'}</td>
-      <td class="py-2.5 px-2 text-right font-semibold text-slate-700">${formatMoney(t.costo_hora_defecto || 10)}/h</td>
+      <td class="py-2.5 px-2 text-right font-semibold text-slate-700">${formatMoney(t.costo_hora_defecto || 60)} / jornal</td>
       <td class="py-2.5 px-3 text-center whitespace-nowrap">
         <button onclick="eliminarTrabajador(${t.id})" class="text-rose-600 hover:text-rose-800 p-1.5 rounded hover:bg-rose-50 transition" title="Eliminar trabajador">
           🗑️
@@ -2159,6 +2163,8 @@ function abrirModalJornal() {
   if (trabSel && trabSel.value) {
     actualizarPrecioHoraTrabajador(trabSel.value);
   }
+  const hInput = document.getElementById("jornalHoras");
+  if (hInput) hInput.value = "1";
   calcularTotalJornal();
   document.getElementById("modalJornal")?.showModal();
 }
