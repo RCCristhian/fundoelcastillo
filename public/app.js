@@ -1000,9 +1000,13 @@ function calcularYRenderizarDashboard() {
   const totalHoras = jornales.reduce((acc, j) => acc + (Number(j.horas) || 0), 0);
   const totalCompras = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
 
+  // Compras de insumos: se consideran gasto general prorrateado SOLO hasta que se usan en un tratamiento.
+  // Al aplicarse a un cultivo, ese monto pasa a ser gasto específico del cultivo y se descuenta del gasto general.
+  const insumosAlmacenGeneral = Math.max(0, totalCompras - totalTratamientos);
+
   const totalIngresos = totalVentas;
-  // Contabilizar compras de productos de almacén dentro de egresos totales
-  const totalGastos = totalCompras + totalTratamientos + totalEspecificos + totalGenerales + totalJornales;
+  // Egresos totales = Tratamientos específicos + Insumos en almacén no aplicados (general) + Específicos + Generales + Jornales
+  const totalGastos = totalTratamientos + insumosAlmacenGeneral + totalEspecificos + totalGenerales + totalJornales;
   const resultadoNeto = totalIngresos - totalGastos;
 
   const totalHa = variedades.reduce((acc, v) => acc + (Number(v.hectareas) || 0), 0) || 1.0;
@@ -1056,6 +1060,7 @@ function calcularYRenderizarDashboard() {
     const kgV = vVentas.reduce((a, b) => a + (Number(b.kilos) || 0), 0);
     const precioProm = kgV > 0 ? ingV / kgV : 0;
 
+    // Gasto específico del cultivo: insumos aplicados en tratamientos directamente a este lote
     const vTrat = tratamientos.filter(item => item.variedad_id == vid);
     const gastoTrat = vTrat.reduce((a, b) => a + (Number(b.total) || 0), 0);
 
@@ -1065,9 +1070,14 @@ function calcularYRenderizarDashboard() {
     const vJor = jornales.filter(item => item.variedad_id == vid);
     const gastoJor = vJor.reduce((a, b) => a + (Number(b.total) || 0), 0);
 
-    const prorrateoGen = totalHa > 0 ? (ha / totalHa) * totalGenerales : 0;
-    const prorrateoCompras = totalHa > 0 ? (ha / totalHa) * totalCompras : 0;
-    const totalCostosV = gastoTrat + gastoEsp + gastoJor + prorrateoGen + prorrateoCompras;
+    // Gastos generales prorrateados por hectáreas:
+    // 1. Gastos generales fijos (arriendos, servicios, campo)
+    const prorrateoGenFijo = totalHa > 0 ? (ha / totalHa) * totalGenerales : 0;
+    // 2. Insumos en almacén no aplicados aún (gasto general compartido hasta ser usados)
+    const prorrateoInsumosAlmacen = totalHa > 0 ? (ha / totalHa) * insumosAlmacenGeneral : 0;
+    const prorrateoGenTotal = prorrateoGenFijo + prorrateoInsumosAlmacen;
+
+    const totalCostosV = gastoTrat + gastoEsp + gastoJor + prorrateoGenTotal;
     const netoV = ingV - totalCostosV;
     const rentArbol = arboles > 0 ? netoV / arboles : null;
 
@@ -1082,7 +1092,8 @@ function calcularYRenderizarDashboard() {
       gasto_quimicos: gastoTrat,
       gasto_especificos: gastoEsp,
       gasto_jornales: gastoJor,
-      gasto_generales_prorrateado: prorrateoGen + prorrateoCompras,
+      gasto_generales_prorrateado: prorrateoGenTotal,
+      gasto_insumos_almacen_prorrateado: prorrateoInsumosAlmacen,
       total_gastos: totalCostosV,
       resultado_neto: netoV,
       resultado_por_arbol: rentArbol
@@ -1090,13 +1101,18 @@ function calcularYRenderizarDashboard() {
   });
 
   renderGraficoEspecies(resumenVariedades);
-  renderGraficoGastos({
-    "Compras de Insumos": totalCompras,
-    "Tratamientos / Aplicaciones": totalTratamientos,
+  
+  const desgloseGastos = {
+    "Tratamientos Químicos (Específicos)": totalTratamientos,
     "Jornales / Mano de Obra": totalJornales,
-    "Gastos Específicos": totalEspecificos,
+    "Gastos Específicos de Cultivo": totalEspecificos,
     "Gastos Generales / Arriendos": totalGenerales
-  });
+  };
+  if (insumosAlmacenGeneral > 0) {
+    desgloseGastos["Insumos en Almacén (Gasto General)"] = insumosAlmacenGeneral;
+  }
+  renderGraficoGastos(desgloseGastos);
+
   renderDashboardVariedadesMini(resumenVariedades);
   renderTablaResumenEspecies(resumenVariedades);
   renderTablaBalanceCampanas();
