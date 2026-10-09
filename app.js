@@ -2082,43 +2082,101 @@ function abrirModalRegistroRapido() { document.getElementById("modalRegistroRapi
 function abrirModalVenta() { document.getElementById("modalVenta")?.showModal(); }
 
 function abrirModalTrabajador() {
-  document.getElementById("formTrabajador")?.reset();
-  const cHora = document.getElementById("trabCostoHora");
-  if (cHora) cHora.value = "60.0";
-  const rolEl = document.getElementById("trabRol");
-  if (rolEl) rolEl.value = "Jornalero";
+  cancelarEdicionTrabajador();
   renderListaTrabajadoresModal();
   document.getElementById("modalTrabajador")?.showModal();
 }
 
 function renderListaTrabajadoresModal() {
-  const tbody = document.getElementById("listaTrabajadoresModalBody");
+  const container = document.getElementById("listaTrabajadoresCards");
   const badge = document.getElementById("cantTrabajadoresBadge");
   const lista = globalData.trabajadores || [];
   if (badge) badge.textContent = lista.length;
-  if (!tbody) return;
-  tbody.innerHTML = "";
+  if (!container) return;
+  container.innerHTML = "";
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-slate-400 italic">No hay trabajadores registrados aún</td></tr>`;
+    container.innerHTML = `<div class="p-4 text-center text-slate-400 italic">No hay trabajadores registrados aún</div>`;
     return;
   }
 
   lista.forEach(t => {
-    const tr = document.createElement("tr");
-    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
-    tr.innerHTML = `
-      <td class="py-2.5 px-3 font-bold text-slate-900">${t.nombre}</td>
-      <td class="py-2.5 px-2 text-slate-600">${t.rol || 'Jornalero'}</td>
-      <td class="py-2.5 px-2 text-right font-semibold text-slate-700">${formatMoney(t.costo_hora_defecto || 60)} / jornal</td>
-      <td class="py-2.5 px-3 text-center whitespace-nowrap">
-        <button onclick="eliminarTrabajador(${t.id})" class="text-rose-600 hover:text-rose-800 p-1.5 rounded hover:bg-rose-50 transition" title="Eliminar trabajador">
+    const costoJornal = Number(t.costo_hora_defecto) || 60;
+    const div = document.createElement("div");
+    div.className = "p-3 hover:bg-slate-50 transition flex items-center justify-between gap-2.5";
+    div.innerHTML = `
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-bold text-slate-900 text-xs truncate">${t.nombre}</span>
+          <span class="bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium">${t.rol || 'Jornalero'}</span>
+        </div>
+        <div class="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+          <span>${formatMoney(costoJornal)}</span>
+          <span class="text-slate-400 font-normal text-[10px]">por jornal</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button type="button" onclick="editarTrabajadorModal(${t.id})" class="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition shadow-xs" title="Editar costo por jornal y datos">
+          ✏️ Editar
+        </button>
+        <button type="button" onclick="eliminarTrabajador(${t.id})" class="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg text-xs transition" title="Eliminar trabajador">
           🗑️
         </button>
-      </td>
+      </div>
     `;
-    tbody.appendChild(tr);
+    container.appendChild(div);
   });
+}
+
+function editarTrabajadorModal(id) {
+  const t = (globalData.trabajadores || []).find(item => item.id == id);
+  if (!t) return;
+
+  const idInput = document.getElementById("trabEditId");
+  if (idInput) idInput.value = t.id;
+  const nomInput = document.getElementById("trabNombre");
+  if (nomInput) nomInput.value = t.nombre;
+  const rolInput = document.getElementById("trabRol");
+  if (rolInput) rolInput.value = t.rol || "Jornalero";
+  const costoInput = document.getElementById("trabCostoHora");
+  if (costoInput) costoInput.value = t.costo_hora_defecto || 60;
+
+  const titleEl = document.getElementById("formTrabajadorTitle");
+  if (titleEl) titleEl.textContent = `✏️ Editar Trabajador: ${t.nombre}`;
+  const btnEl = document.getElementById("btnGuardarTrabajador");
+  if (btnEl) {
+    btnEl.innerHTML = `
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      Actualizar Trabajador
+    `;
+  }
+  const btnCancel = document.getElementById("btnCancelarEdicionTrabajador");
+  if (btnCancel) btnCancel.classList.remove("hidden");
+
+  // Desplazar formulario a la vista
+  document.getElementById("modalTrabajadorContent")?.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelarEdicionTrabajador() {
+  document.getElementById("formTrabajador")?.reset();
+  const idInput = document.getElementById("trabEditId");
+  if (idInput) idInput.value = "";
+  const cHora = document.getElementById("trabCostoHora");
+  if (cHora) cHora.value = "60.0";
+  const rolEl = document.getElementById("trabRol");
+  if (rolEl) rolEl.value = "Jornalero";
+
+  const titleEl = document.getElementById("formTrabajadorTitle");
+  if (titleEl) titleEl.textContent = "+ Registrar Nuevo Trabajador";
+  const btnEl = document.getElementById("btnGuardarTrabajador");
+  if (btnEl) {
+    btnEl.innerHTML = `
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Guardar Trabajador
+    `;
+  }
+  const btnCancel = document.getElementById("btnCancelarEdicionTrabajador");
+  if (btnCancel) btnCancel.classList.add("hidden");
 }
 
 async function eliminarTrabajador(id) {
@@ -2135,6 +2193,10 @@ async function eliminarTrabajador(id) {
 
   const ok = await dataDelete("trabajadores", id);
   if (ok) {
+    const editId = document.getElementById("trabEditId")?.value;
+    if (editId == id) {
+      cancelarEdicionTrabajador();
+    }
     mostrarToast(`Trabajador "${trab.nombre}" eliminado`, "🗑️");
     await cargarTrabajadores();
     renderListaTrabajadoresModal();
@@ -2554,14 +2616,15 @@ async function guardarNuevoProducto(e) {
 
 async function guardarTrabajador(e) {
   e.preventDefault();
+  const editId = document.getElementById("trabEditId")?.value;
   const nom = document.getElementById("trabNombre").value.trim();
   if (!nom) {
     mostrarToast("Ingresa el nombre del trabajador", "⚠️");
     return;
   }
   const rol = document.getElementById("trabRol").value.trim() || "Jornalero";
-  const cRaw = document.getElementById("trabCostoHora").value || "10";
-  const c = parseFloat(String(cRaw).replace(',', '.')) || 10;
+  const cRaw = document.getElementById("trabCostoHora").value || "60";
+  const c = parseFloat(String(cRaw).replace(',', '.')) || 60;
 
   const data = {
     nombre: nom,
@@ -2570,25 +2633,29 @@ async function guardarTrabajador(e) {
     activo: true
   };
 
-  const res = await dataInsert("trabajadores", data);
-  if (res.success) {
-    document.getElementById("formTrabajador")?.reset();
-    const cHora = document.getElementById("trabCostoHora");
-    if (cHora) cHora.value = "10.0";
-    const rolEl = document.getElementById("trabRol");
-    if (rolEl) rolEl.value = "Jornalero";
-    mostrarToast(`Trabajador "${nom}" registrado con éxito`, "👨‍🌾");
-    await cargarTrabajadores();
-    renderListaTrabajadoresModal();
-    const newId = res.id || (res.data && res.data.id);
-    if (newId) {
-      const sel = document.getElementById("jornalTrabajadorId");
-      if (sel) {
-        sel.value = newId;
-        actualizarPrecioHoraTrabajador(newId);
+  if (editId) {
+    await dataUpdate("trabajadores", Number(editId), data);
+    mostrarToast(`Trabajador "${nom}" actualizado con éxito`, "✅");
+    cancelarEdicionTrabajador();
+  } else {
+    const res = await dataInsert("trabajadores", data);
+    if (res.success) {
+      mostrarToast(`Trabajador "${nom}" registrado con éxito`, "👨‍🌾");
+      cancelarEdicionTrabajador();
+      const newId = res.id || (res.data && res.data.id);
+      if (newId) {
+        const sel = document.getElementById("jornalTrabajadorId");
+        if (sel) {
+          sel.value = newId;
+          actualizarPrecioHoraTrabajador(newId);
+        }
       }
     }
   }
+
+  await cargarTrabajadores();
+  renderListaTrabajadoresModal();
+  cargarMatrizMensualJornales();
 }
 
 async function guardarVariedad(e) {
