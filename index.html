@@ -93,7 +93,7 @@
       <div class="px-5 py-3 bg-slate-900/60 border-b border-slate-800/80 text-xs text-slate-300">
         <div class="flex justify-between items-center py-0.5">
           <span class="text-slate-400">Alquiler:</span>
-          <span class="font-bold text-emerald-400" id="sbTotalHectareas">3 hectáreas</span>
+          <span class="font-bold text-emerald-400" id="sbTotalHectareas">0 hectáreas (Sin alquilar)</span>
         </div>
         <div class="flex justify-between items-center py-0.5">
           <span class="text-slate-400">Cultivos:</span>
@@ -130,9 +130,14 @@
           <span>Gastos Específicos</span>
         </button>
 
-        <button onclick="navigate('gastos-generales'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="gastos-generales">
+        <button onclick="navigate('gastos-generales'); toggleGastosFinanzasTab('gastos'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="gastos-generales">
           <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-          <span>Gastos Generales / Arriendos</span>
+          <span>Gastos Generales</span>
+        </button>
+
+        <button onclick="navigate('gastos-generales'); toggleGastosFinanzasTab('ingresos'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="ingresos-financieros">
+          <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Ingresos Financieros (Alquileres)</span>
         </button>
 
         <button onclick="navigate('jornales'); toggleMobileMenu(false)" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition text-left" data-view="jornales">
@@ -523,13 +528,24 @@
         </div>
       </section>
 
-      <!-- ================= VISTA 5: GASTOS GENERALES ================= -->
+      <!-- ================= VISTA 5: GASTOS GENERALES E INGRESOS FINANCIEROS ================= -->
       <section id="view-gastos-generales" class="space-y-6 hidden">
-        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
+        <div class="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
+          <button id="tabGastosGenerales" onclick="toggleGastosFinanzasTab('gastos')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap">
+            Gastos Generales
+          </button>
+          <button id="tabIngresosFinancieros" onclick="toggleGastosFinanzasTab('ingresos')" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap flex items-center gap-1.5">
+            <span>💵 Ingresos Financieros (Alquileres)</span>
+            <span id="badgeHaAlquiladas" class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">0 Ha</span>
+          </button>
+        </div>
+
+        <!-- Contenedor Gastos Generales -->
+        <div id="gastosGeneralesContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
             <div>
-              <h3 class="text-base sm:text-lg font-bold text-slate-900">Gastos Generales y Arriendos</h3>
-              <p class="text-[11px] sm:text-xs text-slate-500">Mantenimiento global de acequias, arriendos de las 3 Ha y preparación de suelos</p>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">Gastos Generales</h3>
+              <p class="text-[11px] sm:text-xs text-slate-500">Mantenimiento global de acequias, canales de riego y preparación de suelos</p>
             </div>
             <button onclick="abrirModalGastoGeneral()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -551,6 +567,64 @@
                 </tr>
               </thead>
               <tbody id="gastosGeneralesTableBody" class="divide-y divide-slate-100">
+                <!-- Se llena vía JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Contenedor Ingresos Financieros (Alquiler de Parcelas a Particulares) -->
+        <div id="ingresosFinancierosContent" class="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/80 shadow-xs hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-base sm:text-lg font-bold text-slate-900">Ingresos Financieros por Alquiler de Terrenos</h3>
+                <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Alquiler a terceros</span>
+              </div>
+              <p class="text-[11px] sm:text-xs text-slate-500">Registro de hectáreas alquiladas a personas particulares y cobros correspondientes</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="abrirModalIngresoFinanciero()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition shadow-xs">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                + Registrar Alquiler / Ingreso
+              </button>
+            </div>
+          </div>
+
+          <!-- Resumen de Alquileres -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
+            <div class="bg-emerald-50/60 border border-emerald-200/60 rounded-xl p-3">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Hectáreas Alquiladas</span>
+              <p id="kpiIngFinHa" class="text-xl font-black text-emerald-800 mt-0.5">0.00 Ha</p>
+              <span class="text-[10px] text-emerald-600 font-medium">Superficie cedida a particulares</span>
+            </div>
+            <div class="bg-blue-50/60 border border-blue-200/60 rounded-xl p-3">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-blue-700">Total Ingresos por Alquiler</span>
+              <p id="kpiIngFinTotal" class="text-xl font-black text-blue-800 mt-0.5">S/. 0.00</p>
+              <span class="text-[10px] text-blue-600 font-medium">Renta cobrada en la campaña</span>
+            </div>
+            <div class="bg-purple-50/60 border border-purple-200/60 rounded-xl p-3">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-purple-700">Arrendatarios Activos</span>
+              <p id="kpiIngFinPersonas" class="text-xl font-black text-purple-800 mt-0.5">0 personas</p>
+              <span class="text-[10px] text-purple-600 font-medium">Contratos / Personas particulares</span>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto mt-3">
+            <table class="w-full text-left text-xs text-slate-700">
+              <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
+                <tr>
+                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3">Arrendatario / Particular</th>
+                  <th class="py-2.5 px-3 text-right">Hectáreas</th>
+                  <th class="py-2.5 px-3">Concepto / Parcela</th>
+                  <th class="py-2.5 px-3 text-right">Monto Total</th>
+                  <th class="py-2.5 px-3">Comprobante / Recibo</th>
+                  <th class="py-2.5 px-3">Notas</th>
+                  <th class="py-2.5 px-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="ingresosFinancierosTableBody" class="divide-y divide-slate-100">
                 <!-- Se llena vía JS -->
               </tbody>
             </table>
@@ -881,7 +955,13 @@
         <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalGastoGeneral()" class="p-3.5 rounded-xl border border-purple-200 hover:border-purple-500 hover:bg-purple-50/50 flex flex-col items-center text-center gap-1.5 transition">
           <span class="text-2xl">🚜</span>
           <span class="font-bold text-slate-800">Gasto General</span>
-          <span class="text-[10px] text-purple-600 font-medium">Arriendos, campo</span>
+          <span class="text-[10px] text-purple-600 font-medium">Mantenimiento, campo</span>
+        </button>
+
+        <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalIngresoFinanciero()" class="p-3.5 rounded-xl border border-emerald-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center text-center gap-1.5 transition">
+          <span class="text-2xl">💵</span>
+          <span class="font-bold text-slate-800">Alquilar Parcela</span>
+          <span class="text-[10px] text-emerald-600 font-medium">Hectáreas a terceros</span>
         </button>
 
         <button onclick="cerrarDialog('modalRegistroRapido'); abrirModalJornal()" class="p-3.5 rounded-xl border border-blue-200 hover:border-blue-500 hover:bg-blue-50/50 flex flex-col items-center text-center gap-1.5 transition">
@@ -1089,10 +1169,11 @@
   <dialog id="modalGastoGeneral" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-purple-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Registrar Gasto General</h3>
+        <h3 id="modalGastoGeneralTitle" class="font-bold text-sm">Registrar Gasto General</h3>
         <button onclick="cerrarDialog('modalGastoGeneral')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formGastoGeneral" onsubmit="guardarGastoGeneral(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="ggId">
         <div>
           <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
           <input type="date" id="ggFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
@@ -1100,7 +1181,7 @@
 
         <div>
           <label class="block font-semibold text-slate-700 mb-1">Concepto *</label>
-          <input type="text" id="ggConcepto" required placeholder="Ej: Movimiento de tierra a caballo, Arriendo" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
+          <input type="text" id="ggConcepto" required placeholder="Ej: Movimiento de tierra a caballo, Reparación de acequia" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500">
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -1112,9 +1193,10 @@
             <label class="block font-semibold text-slate-700 mb-1">Categoría</label>
             <select id="ggCategoria" class="w-full px-3 py-2 border rounded-lg">
               <option value="Mantenimiento / Operación">Mantenimiento</option>
-              <option value="Alquiler de Terreno (Arriendo)">Arriendo</option>
+              <option value="Infraestructura / Canales">Infraestructura / Canales</option>
               <option value="Preparación de Suelos">Preparación Suelos</option>
               <option value="Agua de Riego">Agua de Riego</option>
+              <option value="Maquinaria / Servicios">Maquinaria / Servicios</option>
               <option value="Otro">Otro</option>
             </select>
           </div>
@@ -1133,7 +1215,62 @@
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalGastoGeneral')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow">Guardar Gasto</button>
+          <button type="submit" id="btnGuardarGastoGeneral" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow">Guardar Gasto</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Ingreso Financiero (Alquiler de Hectáreas a Particulares) -->
+  <dialog id="modalIngresoFinanciero" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden">
+      <div class="bg-emerald-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <h3 id="modalIngFinTitle" class="font-bold text-sm">Registrar Alquiler de Hectáreas</h3>
+        <button onclick="cerrarDialog('modalIngresoFinanciero')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <form id="formIngresoFinanciero" onsubmit="guardarIngresoFinanciero(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="ingFinId">
+        
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
+            <input type="date" id="ingFinFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Hectáreas Alquiladas *</label>
+            <input type="number" step="0.01" min="0" id="ingFinHectareas" required placeholder="Ej: 1.0 ó 0.50" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-bold text-emerald-700">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Arrendatario / Persona Particular *</label>
+          <input type="text" id="ingFinPagador" required placeholder="Nombre de la persona particular que alquila" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Concepto / Parcela Alquilada *</label>
+          <input type="text" id="ingFinConcepto" required placeholder="Ej: Alquiler de terreno para cultivo de maíz" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Monto Total Cobrado (<span class="monedaLabel">S/.</span>) *</label>
+            <input type="number" step="0.01" id="ingFinTotal" required placeholder="Ej: 1500" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 font-bold">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Nº Comprobante / Recibo</label>
+            <input type="text" id="ingFinNroFactura" placeholder="Ej: REC-001" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notas / Observaciones</label>
+          <input type="text" id="ingFinNotas" placeholder="Opcional: Periodo de alquiler, condiciones del trato..." class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t">
+          <button type="button" onclick="cerrarDialog('modalIngresoFinanciero')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
+          <button type="submit" id="btnGuardarIngFin" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">Guardar Alquiler</button>
         </div>
       </form>
     </div>
@@ -1483,6 +1620,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261008_10"></script>
+  <script src="app.js?v=20261008_11"></script>
 </body>
 </html>

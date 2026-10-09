@@ -32,6 +32,7 @@ let globalData = {
   ventas: [],
   gastosEspecificos: [],
   gastosGenerales: [],
+  ingresosFinancieros: [],
   jornales: [],
   tratamientos: [],
   compras: [],
@@ -116,7 +117,7 @@ function navigate(viewName) {
     "resumen-especies": ["Rentabilidad por Especie", "P&L Agrícola: Ingresos vs Costos directos y prorrateados"],
     "ventas": ["Ventas y Cosecha", "Control de cosechas vendidas, acopiadores y cobranzas"],
     "gastos-especificos": ["Gastos Específicos", "Costes directos aplicados a un cultivo particular"],
-    "gastos-generales": ["Gastos Generales y Arriendos", "Mantenimiento del campo, arriendos de las 3 Ha y costos comunes"],
+    "gastos-generales": ["Gastos Generales", "Mantenimiento global de acequias, canales e ingresos por alquiler de parcelas"],
     "jornales": ["Jornales y Mano de Obra", "Horas trabajadas por jornalero, cultivo asignado y labores realizadas"],
     "tratamientos": ["Tratamientos y Fitosanitarios", "Aplicaciones de fertilizantes, pesticidas y abonos por variedad"],
     "insumos": ["Almacén de Insumos y Compras", "Inventario valorizado de productos químicos y compras registradas"],
@@ -130,6 +131,39 @@ function navigate(viewName) {
 
   if (viewName === "jornales") {
     cargarMatrizMensualJornales();
+  }
+}
+
+function toggleGastosFinanzasTab(tab) {
+  const contentGastos = document.getElementById("gastosGeneralesContent");
+  const contentIngresos = document.getElementById("ingresosFinancierosContent");
+  const tabGastos = document.getElementById("tabGastosGenerales");
+  const tabIngresos = document.getElementById("tabIngresosFinancieros");
+
+  if (tab === "ingresos") {
+    if (contentGastos) contentGastos.classList.add("hidden");
+    if (contentIngresos) contentIngresos.classList.remove("hidden");
+    
+    if (tabGastos) {
+      tabGastos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap";
+    }
+    if (tabIngresos) {
+      tabIngresos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap flex items-center gap-1.5";
+    }
+    document.getElementById("pageTitle").textContent = "Ingresos Financieros (Alquileres)";
+    document.getElementById("pageSubtitle").textContent = "Control de hectáreas alquiladas a personas particulares y cobranzas";
+  } else {
+    if (contentGastos) contentGastos.classList.remove("hidden");
+    if (contentIngresos) contentIngresos.classList.add("hidden");
+    
+    if (tabGastos) {
+      tabGastos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap";
+    }
+    if (tabIngresos) {
+      tabIngresos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap flex items-center gap-1.5";
+    }
+    document.getElementById("pageTitle").textContent = "Gastos Generales";
+    document.getElementById("pageSubtitle").textContent = "Mantenimiento global de acequias, canales y preparación de suelos";
   }
 }
 
@@ -227,7 +261,18 @@ async function dataInsert(table, record) {
   if (supabaseClient) {
     try {
       const { id, ...recordWithoutId } = record;
-      const { data, error } = await supabaseClient.from(table).insert([recordWithoutId]).select();
+      let insertPayload = { ...recordWithoutId };
+      let { data, error } = await supabaseClient.from(table).insert([insertPayload]).select();
+      
+      // Fallback si la tabla en Supabase aún no tiene la columna 'hectareas'
+      if (error && error.message && error.message.toLowerCase().includes("hectareas")) {
+        const { hectareas, ...fallbackPayload } = insertPayload;
+        fallbackPayload.notas = `[Ha: ${record.hectareas || 0}] ${fallbackPayload.notas || ''}`.trim();
+        const retry = await supabaseClient.from(table).insert([fallbackPayload]).select();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (!error && data && data[0]?.id) {
         record.id = data[0].id;
       }
@@ -265,7 +310,15 @@ async function dataDelete(table, id) {
 async function dataUpdate(table, id, fields) {
   if (supabaseClient) {
     try {
-      await supabaseClient.from(table).update(fields).eq("id", id);
+      let updatePayload = { ...fields };
+      let { error } = await supabaseClient.from(table).update(updatePayload).eq("id", id);
+      if (error && error.message && error.message.toLowerCase().includes("hectareas")) {
+        const { hectareas, ...fallbackPayload } = updatePayload;
+        if (fields.hectareas !== undefined) {
+          fallbackPayload.notas = `[Ha: ${fields.hectareas || 0}] ${fallbackPayload.notas || ''}`.trim();
+        }
+        await supabaseClient.from(table).update(fallbackPayload).eq("id", id);
+      }
     } catch (e) {
       console.warn(`Supabase update error en ${table}:`, e);
     }
@@ -328,7 +381,7 @@ function cambiarCampana(val) {
     const mes = String(hoy.getMonth() + 1).padStart(2, '0');
     const dia = String(hoy.getDate()).padStart(2, '0');
     const fechaCampana = `${val}-${mes}-${dia}`;
-    ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha"].forEach(id => {
+    ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha", "ingFinFecha"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = fechaCampana;
     });
@@ -339,6 +392,7 @@ function cambiarCampana(val) {
   renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
   renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
   renderTablaGastosGenerales(globalData.gastosGenerales.filter(filtroPorCampana));
+  renderTablaIngresosFinancieros((globalData.ingresosFinancieros || []).filter(filtroPorCampana));
   renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
   renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
   renderTablaCompras(globalData.compras.filter(filtroPorCampana));
@@ -449,6 +503,7 @@ async function cargarTodosLosDatos() {
     cargarVentas(),
     cargarGastosEspecificos(),
     cargarGastosGenerales(),
+    cargarIngresosFinancieros(),
     cargarJornales(),
     cargarTratamientos(),
     cargarCompras()
@@ -864,12 +919,166 @@ function renderTablaGastosGenerales(lista) {
       <td class="py-2.5 px-3 text-right font-black text-purple-700">${formatMoney(gg.total)}</td>
       <td class="py-2.5 px-3 text-slate-600">${gg.empresa || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${gg.nro_factura || '-'}</td>
-      <td class="py-2.5 px-3 text-center">
-        <button onclick="dataDelete('gastos_generales', ${gg.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap">
+        <button onclick="abrirModalEditarGastoGeneral(${gg.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar">✏️</button>
+        <button onclick="dataDelete('gastos_generales', ${gg.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
+}
+
+// ================= GESTIÓN DE INGRESOS FINANCIEROS (ALQUILER DE TERRENOS) =================
+async function cargarIngresosFinancieros() {
+  const res = await dataFetch("ingresos_financieros", "*", "fecha", false);
+  if (!res.success) return;
+  
+  // Normalizar datos para asegurar que 'hectareas' esté presente (incluso si vino en notas como fallback)
+  const list = (res.data || []).map(item => {
+    let ha = Number(item.hectareas);
+    if (isNaN(ha) || item.hectareas === null || item.hectareas === undefined) {
+      if (item.notas && /\[Ha:\s*([0-9.]+)\]/i.test(item.notas)) {
+        ha = parseFloat(item.notas.match(/\[Ha:\s*([0-9.]+)\]/i)[1]) || 0;
+      } else {
+        ha = 0;
+      }
+    }
+    return { ...item, hectareas: ha };
+  });
+
+  globalData.ingresosFinancieros = list;
+  renderTablaIngresosFinancieros(list.filter(filtroPorCampana));
+}
+
+function renderTablaIngresosFinancieros(lista) {
+  const tbody = document.getElementById("ingresosFinancierosTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const totalHa = lista.reduce((a, b) => a + (Number(b.hectareas) || 0), 0);
+  const totalMonto = lista.reduce((a, b) => a + (Number(b.total) || 0), 0);
+  const personas = new Set(lista.map(x => (x.pagador || "").trim().toLowerCase()).filter(Boolean)).size;
+
+  const kpiHa = document.getElementById("kpiIngFinHa");
+  if (kpiHa) kpiHa.textContent = `${formatNum(totalHa, 2)} Ha`;
+  const kpiTot = document.getElementById("kpiIngFinTotal");
+  if (kpiTot) kpiTot.textContent = formatMoney(totalMonto);
+  const kpiPer = document.getElementById("kpiIngFinPersonas");
+  if (kpiPer) kpiPer.textContent = `${personas} persona${personas === 1 ? '' : 's'}`;
+
+  const badgeHa = document.getElementById("badgeHaAlquiladas");
+  if (badgeHa) badgeHa.textContent = `${formatNum(totalHa, 1)} Ha`;
+
+  if (lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400 italic">No hay registros de alquiler de hectáreas a particulares en esta campaña</td></tr>`;
+    return;
+  }
+
+  lista.forEach(inf => {
+    const haVal = Number(inf.hectareas) || 0;
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${inf.fecha}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${inf.pagador || 'Particular'}</td>
+      <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatNum(haVal, 2)} Ha</td>
+      <td class="py-2.5 px-3 text-slate-700">${inf.concepto}</td>
+      <td class="py-2.5 px-3 text-right font-black text-emerald-600">${formatMoney(inf.total)}</td>
+      <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${inf.nro_factura || '-'}</td>
+      <td class="py-2.5 px-3 text-slate-500 max-w-[160px] truncate" title="${inf.notas || ''}">${inf.notas || '-'}</td>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap">
+        <button onclick="abrirModalEditarIngresoFinanciero(${inf.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar">✏️</button>
+        <button onclick="eliminarIngresoFinanciero(${inf.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function abrirModalIngresoFinanciero() {
+  document.getElementById("formIngresoFinanciero")?.reset();
+  const idEl = document.getElementById("ingFinId");
+  if (idEl) idEl.value = "";
+  const fechaEl = document.getElementById("ingFinFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+  const titleEl = document.getElementById("modalIngFinTitle");
+  if (titleEl) titleEl.textContent = "Registrar Alquiler de Hectáreas a Particulares";
+  const btnEl = document.getElementById("btnGuardarIngFin");
+  if (btnEl) btnEl.textContent = "Guardar Alquiler";
+  document.getElementById("modalIngresoFinanciero")?.showModal();
+}
+
+function abrirModalEditarIngresoFinanciero(id) {
+  const item = (globalData.ingresosFinancieros || []).find(x => x.id == id);
+  if (!item) return;
+  document.getElementById("formIngresoFinanciero")?.reset();
+  document.getElementById("ingFinId").value = item.id;
+  document.getElementById("ingFinFecha").value = item.fecha || "";
+  document.getElementById("ingFinHectareas").value = item.hectareas ?? "";
+  document.getElementById("ingFinPagador").value = item.pagador || "";
+  document.getElementById("ingFinConcepto").value = item.concepto || "";
+  document.getElementById("ingFinTotal").value = item.total ?? "";
+  document.getElementById("ingFinNroFactura").value = item.nro_factura || "";
+  document.getElementById("ingFinNotas").value = item.notas || "";
+
+  const titleEl = document.getElementById("modalIngFinTitle");
+  if (titleEl) titleEl.textContent = "Editar Alquiler de Hectáreas";
+  const btnEl = document.getElementById("btnGuardarIngFin");
+  if (btnEl) btnEl.textContent = "Actualizar Alquiler";
+  document.getElementById("modalIngresoFinanciero")?.showModal();
+}
+
+async function guardarIngresoFinanciero(e) {
+  e.preventDefault();
+  const id = document.getElementById("ingFinId")?.value;
+  const fecha = document.getElementById("ingFinFecha").value;
+  const pagador = document.getElementById("ingFinPagador").value.trim();
+  const concepto = document.getElementById("ingFinConcepto").value.trim();
+  const haRaw = document.getElementById("ingFinHectareas").value;
+  const hectareas = parseFloat(String(haRaw).replace(',', '.')) || 0;
+  const totRaw = document.getElementById("ingFinTotal").value;
+  const total = parseFloat(String(totRaw).replace(',', '.')) || 0;
+  const nro_factura = document.getElementById("ingFinNroFactura").value.trim();
+  const notas = document.getElementById("ingFinNotas").value.trim();
+
+  const record = {
+    fecha,
+    pagador,
+    concepto,
+    hectareas,
+    total,
+    nro_factura,
+    notas
+  };
+
+  if (id) {
+    await dataUpdate("ingresos_financieros", Number(id), record);
+    mostrarToast("Alquiler actualizado exitosamente", "✅");
+  } else {
+    await dataInsert("ingresos_financieros", record);
+    mostrarToast("Alquiler registrado exitosamente", "💵");
+  }
+
+  cerrarDialog("modalIngresoFinanciero");
+  await cargarIngresosFinancieros();
+  calcularYRenderizarDashboard();
+}
+
+async function eliminarIngresoFinanciero(id) {
+  const ok = await dataDelete("ingresos_financieros", id);
+  if (ok) {
+    await cargarIngresosFinancieros();
+    calcularYRenderizarDashboard();
+  }
 }
 
 async function cargarJornales() {
@@ -984,6 +1193,7 @@ function renderTablaCompras(lista) {
 // ================= MOTOR DE CÁLCULO DE DASHBOARD Y RENTABILIDAD =================
 function calcularYRenderizarDashboard() {
   const ventas = globalData.ventas.filter(filtroPorCampana);
+  const ingresosFin = (globalData.ingresosFinancieros || []).filter(filtroPorCampana);
   const tratamientos = globalData.tratamientos.filter(filtroPorCampana);
   const especificos = globalData.gastosEspecificos.filter(filtroPorCampana);
   const generales = globalData.gastosGenerales.filter(filtroPorCampana);
@@ -992,6 +1202,7 @@ function calcularYRenderizarDashboard() {
   const variedades = globalData.variedades;
 
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+  const totalIngresosFinancieros = ingresosFin.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
   const totalKilos = ventas.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
   const totalTratamientos = tratamientos.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
   const totalEspecificos = especificos.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
@@ -1004,7 +1215,7 @@ function calcularYRenderizarDashboard() {
   // Al aplicarse a un cultivo, ese monto pasa a ser gasto específico del cultivo y se descuenta del gasto general.
   const insumosAlmacenGeneral = Math.max(0, totalCompras - totalTratamientos);
 
-  const totalIngresos = totalVentas;
+  const totalIngresos = totalVentas + totalIngresosFinancieros;
   // Egresos totales = Tratamientos específicos + Insumos en almacén no aplicados (general) + Específicos + Generales + Jornales
   const totalGastos = totalTratamientos + insumosAlmacenGeneral + totalEspecificos + totalGenerales + totalJornales;
   const resultadoNeto = totalIngresos - totalGastos;
@@ -1033,8 +1244,16 @@ function calcularYRenderizarDashboard() {
   // Actualizar Valor Stock
   recalcularStockYValorizacion();
 
-  const haTexto = (totalHa % 1 === 0) ? `${Math.round(totalHa)} hectáreas` : `${formatNum(totalHa, 1)} hectáreas`;
-  document.getElementById("sbTotalHectareas").textContent = haTexto;
+  // Hectáreas alquiladas a personas particulares (desde ingresos financieros de la campaña activa)
+  const totalHaAlquiladas = ingresosFin.reduce((acc, f) => acc + (Number(f.hectareas) || 0), 0);
+  let haTexto = "0 hectáreas (Sin alquilar)";
+  if (totalHaAlquiladas > 0) {
+    haTexto = (totalHaAlquiladas % 1 === 0)
+      ? `${Math.round(totalHaAlquiladas)} ${totalHaAlquiladas === 1 ? 'hectárea' : 'hectáreas'}`
+      : `${formatNum(totalHaAlquiladas, 2)} hectáreas`;
+  }
+  const elSbHa = document.getElementById("sbTotalHectareas");
+  if (elSbHa) elSbHa.textContent = haTexto;
   const sbArb = document.getElementById("sbTotalArboles");
   if (sbArb) {
     sbArb.textContent = totalArboles > 0 ? `${formatNum(totalArboles, 0)} plantas` : `0 plantas (Sin registrar)`;
@@ -1106,7 +1325,7 @@ function calcularYRenderizarDashboard() {
     "Tratamientos Químicos (Específicos)": totalTratamientos,
     "Jornales / Mano de Obra": totalJornales,
     "Gastos Específicos de Cultivo": totalEspecificos,
-    "Gastos Generales / Arriendos": totalGenerales
+    "Gastos Generales": totalGenerales
   };
   if (insumosAlmacenGeneral > 0) {
     desgloseGastos["Insumos en Almacén (Gasto General)"] = insumosAlmacenGeneral;
@@ -1128,7 +1347,7 @@ function renderTablaBalanceCampanas() {
   const aniosSet = new Set();
   (globalData.campanas || []).forEach(c => { if (c.anio) aniosSet.add(Number(c.anio)); });
   
-  [...globalData.ventas, ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales, ...globalData.compras].forEach(item => {
+  [...globalData.ventas, ...(globalData.ingresosFinancieros || []), ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales, ...globalData.compras].forEach(item => {
     if (item && item.fecha) {
       const y = parseInt(item.fecha.substring(0, 4), 10);
       if (!isNaN(y) && y > 2000 && y < 2100) aniosSet.add(y);
@@ -1154,13 +1373,15 @@ function renderTablaBalanceCampanas() {
     const filtroAnio = item => item && item.fecha && item.fecha.startsWith(String(anio));
     
     const vList = globalData.ventas.filter(filtroAnio);
+    const ifList = (globalData.ingresosFinancieros || []).filter(filtroAnio);
     const tList = globalData.tratamientos.filter(filtroAnio);
     const jList = globalData.jornales.filter(filtroAnio);
     const geList = globalData.gastosEspecificos.filter(filtroAnio);
     const ggList = globalData.gastosGenerales.filter(filtroAnio);
     const cList = globalData.compras.filter(filtroAnio);
 
-    const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+    const ingAlquiler = ifList.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+    const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0) + ingAlquiler;
     const kilos = vList.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
     const insumos = tList.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
     const compras = cList.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
@@ -1588,7 +1809,37 @@ function abrirModalTratamiento() {
   document.getElementById("modalTratamiento")?.showModal();
 }
 
-function abrirModalGastoGeneral() { document.getElementById("modalGastoGeneral")?.showModal(); }
+function abrirModalGastoGeneral() {
+  document.getElementById("formGastoGeneral")?.reset();
+  const idEl = document.getElementById("ggId");
+  if (idEl) idEl.value = "";
+  const title = document.getElementById("modalGastoGeneralTitle");
+  if (title) title.textContent = "Registrar Gasto General";
+  const btn = document.getElementById("btnGuardarGastoGeneral");
+  if (btn) btn.textContent = "Guardar Gasto";
+  initFechasHoy();
+  document.getElementById("modalGastoGeneral")?.showModal();
+}
+
+function abrirModalEditarGastoGeneral(id) {
+  const g = (globalData.gastosGenerales || []).find(item => item.id == id);
+  if (!g) return;
+  document.getElementById("formGastoGeneral")?.reset();
+  const idEl = document.getElementById("ggId");
+  if (idEl) idEl.value = g.id;
+  document.getElementById("ggFecha").value = g.fecha || "";
+  document.getElementById("ggConcepto").value = g.concepto || "";
+  document.getElementById("ggTotal").value = g.total ?? "";
+  document.getElementById("ggCategoria").value = g.categoria || "Mantenimiento / Operación";
+  document.getElementById("ggEmpresa").value = g.empresa || "";
+  document.getElementById("ggFactura").value = g.nro_factura || "";
+
+  const title = document.getElementById("modalGastoGeneralTitle");
+  if (title) title.textContent = "Editar Gasto General";
+  const btn = document.getElementById("btnGuardarGastoGeneral");
+  if (btn) btn.textContent = "Actualizar Gasto";
+  document.getElementById("modalGastoGeneral")?.showModal();
+}
 function abrirModalGastoEspecifico() { document.getElementById("modalGastoEspecifico")?.showModal(); }
 function abrirModalCompraInsumo() { document.getElementById("modalCompraInsumo")?.showModal(); }
 function abrirModalNuevoProducto() { document.getElementById("modalNuevoProducto")?.showModal(); }
@@ -1781,6 +2032,7 @@ async function guardarTratamiento(e) {
 
 async function guardarGastoGeneral(e) {
   e.preventDefault();
+  const id = document.getElementById("ggId")?.value;
   const totalRaw = document.getElementById("ggTotal")?.value || "0";
   const total = parseFloat(String(totalRaw).replace(',', '.')) || 0;
   const data = {
@@ -1792,14 +2044,19 @@ async function guardarGastoGeneral(e) {
     nro_factura: document.getElementById("ggFactura").value
   };
 
-  const res = await dataInsert("gastos_generales", data);
-  if (res.success) {
-    cerrarDialog("modalGastoGeneral");
-    document.getElementById("formGastoGeneral").reset();
-    initFechasHoy();
+  if (id) {
+    await dataUpdate("gastos_generales", Number(id), data);
+    mostrarToast("Gasto general actualizado", "✅");
+  } else {
+    await dataInsert("gastos_generales", data);
     mostrarToast("Gasto general guardado", "🚜");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalGastoGeneral");
+  document.getElementById("formGastoGeneral").reset();
+  if (document.getElementById("ggId")) document.getElementById("ggId").value = "";
+  initFechasHoy();
+  actualizarDatos();
 }
 
 async function guardarGastoEspecifico(e) {
@@ -2013,6 +2270,7 @@ async function confirmarLimpiarBaseDeDatos() {
         "tratamientos",
         "gastos_especificos",
         "gastos_generales",
+        "ingresos_financieros",
         "jornales",
         "compras_productos",
         "variedades"
@@ -2034,12 +2292,14 @@ async function confirmarLimpiarBaseDeDatos() {
     // 3. Resetear memoria local
     localStorage.removeItem("fundo_arboles_custom");
     localStorage.removeItem("fundo_arboles_reales_iniciado");
+    setLocalTable("ingresos_financieros", []);
 
     globalData.variedades = [];
     globalData.ventas = [];
     globalData.tratamientos = [];
     globalData.gastosEspecificos = [];
     globalData.gastosGenerales = [];
+    globalData.ingresosFinancieros = [];
     globalData.jornales = [];
     globalData.compras = [];
 
