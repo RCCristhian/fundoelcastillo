@@ -32,6 +32,8 @@ let globalData = {
   ventas: [],
   gastosEspecificos: [],
   gastosGenerales: [],
+  alquileresParcelas: [],
+  alquileresPagos: [],
   ingresosFinancieros: [],
   jornales: [],
   tratamientos: [],
@@ -117,7 +119,9 @@ function navigate(viewName) {
     "resumen-especies": ["Rentabilidad por Especie", "P&L Agrícola: Ingresos vs Costos directos y prorrateados"],
     "ventas": ["Ventas y Cosecha", "Control de cosechas vendidas, acopiadores y cobranzas"],
     "gastos-especificos": ["Gastos Específicos", "Costes directos aplicados a un cultivo particular"],
-    "gastos-generales": ["Gastos Generales", "Mantenimiento global de acequias, canales e ingresos por alquiler de parcelas"],
+    "gastos-generales": ["Gastos Generales", "Mantenimiento global de acequias, canales y preparación de suelos"],
+    "alquiler-parcelas": ["Alquiler de Parcelas a Terceros", "Gestión de contratos de arriendo a particulares y pagos recibidos en partes"],
+    "ingresos-financieros": ["Ingresos Financieros & Otros", "Registro de ingresos por intereses, bonos agrícolas, reintegros y servicios"],
     "jornales": ["Jornales y Mano de Obra", "Horas trabajadas por jornalero, cultivo asignado y labores realizadas"],
     "tratamientos": ["Tratamientos y Fitosanitarios", "Aplicaciones de fertilizantes, pesticidas y abonos por variedad"],
     "insumos": ["Almacén de Insumos y Compras", "Inventario valorizado de productos químicos y compras registradas"],
@@ -131,39 +135,6 @@ function navigate(viewName) {
 
   if (viewName === "jornales") {
     cargarMatrizMensualJornales();
-  }
-}
-
-function toggleGastosFinanzasTab(tab) {
-  const contentGastos = document.getElementById("gastosGeneralesContent");
-  const contentIngresos = document.getElementById("ingresosFinancierosContent");
-  const tabGastos = document.getElementById("tabGastosGenerales");
-  const tabIngresos = document.getElementById("tabIngresosFinancieros");
-
-  if (tab === "ingresos") {
-    if (contentGastos) contentGastos.classList.add("hidden");
-    if (contentIngresos) contentIngresos.classList.remove("hidden");
-    
-    if (tabGastos) {
-      tabGastos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap";
-    }
-    if (tabIngresos) {
-      tabIngresos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap flex items-center gap-1.5";
-    }
-    document.getElementById("pageTitle").textContent = "Ingresos Financieros (Alquileres)";
-    document.getElementById("pageSubtitle").textContent = "Control de hectáreas alquiladas a personas particulares y cobranzas";
-  } else {
-    if (contentGastos) contentGastos.classList.remove("hidden");
-    if (contentIngresos) contentIngresos.classList.add("hidden");
-    
-    if (tabGastos) {
-      tabGastos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs whitespace-nowrap";
-    }
-    if (tabIngresos) {
-      tabIngresos.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 whitespace-nowrap flex items-center gap-1.5";
-    }
-    document.getElementById("pageTitle").textContent = "Gastos Generales";
-    document.getElementById("pageSubtitle").textContent = "Mantenimiento global de acequias, canales y preparación de suelos";
   }
 }
 
@@ -381,7 +352,7 @@ function cambiarCampana(val) {
     const mes = String(hoy.getMonth() + 1).padStart(2, '0');
     const dia = String(hoy.getDate()).padStart(2, '0');
     const fechaCampana = `${val}-${mes}-${dia}`;
-    ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha", "ingFinFecha"].forEach(id => {
+    ["ventaFecha", "jornalFecha", "trataFecha", "ggFecha", "geFecha", "compraFecha", "alqFecha", "pagoFecha", "ingFinFecha"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = fechaCampana;
     });
@@ -392,6 +363,7 @@ function cambiarCampana(val) {
   renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
   renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
   renderTablaGastosGenerales(globalData.gastosGenerales.filter(filtroPorCampana));
+  renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
   renderTablaIngresosFinancieros((globalData.ingresosFinancieros || []).filter(filtroPorCampana));
   renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
   renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
@@ -489,8 +461,10 @@ async function eliminarCampana(id, nombre, anio) {
 
 function filtroPorCampana(item) {
   if (campanaActiva === "todas") return true;
-  if (!item || !item.fecha) return true;
-  return item.fecha.startsWith(String(campanaActiva));
+  if (!item) return true;
+  const f = item.fecha || item.fecha_inicio;
+  if (!f) return true;
+  return f.startsWith(String(campanaActiva));
 }
 
 // ================= CARGA DE DATOS =================
@@ -503,6 +477,8 @@ async function cargarTodosLosDatos() {
     cargarVentas(),
     cargarGastosEspecificos(),
     cargarGastosGenerales(),
+    cargarAlquileresParcelas(),
+    cargarAlquileresPagos(),
     cargarIngresosFinancieros(),
     cargarJornales(),
     cargarTratamientos(),
@@ -928,23 +904,387 @@ function renderTablaGastosGenerales(lista) {
   });
 }
 
-// ================= GESTIÓN DE INGRESOS FINANCIEROS (ALQUILER DE TERRENOS) =================
+// ================= GESTIÓN DE ALQUILER DE PARCELAS A TERCEROS =================
+async function cargarAlquileresParcelas() {
+  const res = await dataFetch("alquileres_parcelas", "*", "fecha_inicio", false);
+  let list = [];
+  if (res.success && Array.isArray(res.data)) {
+    list = res.data;
+  }
+
+  // Normalizar datos (asegurar fecha para filtroPorCampana y números)
+  list = list.map(item => ({
+    ...item,
+    fecha: item.fecha || item.fecha_inicio || "",
+    hectareas: parseFloat(item.hectareas) || 0,
+    monto_total: parseFloat(item.monto_total) || 0
+  }));
+
+  globalData.alquileresParcelas = list;
+  renderTablaAlquileresParcelas(list.filter(filtroPorCampana));
+}
+
+async function cargarAlquileresPagos() {
+  const res = await dataFetch("alquileres_pagos", "*", "fecha", false);
+  let list = [];
+  if (res.success && Array.isArray(res.data)) {
+    list = res.data;
+  }
+
+  list = list.map(item => ({
+    ...item,
+    monto: parseFloat(item.monto) || 0
+  }));
+
+  globalData.alquileresPagos = list;
+}
+
+function renderTablaAlquileresParcelas(lista) {
+  const tbody = document.getElementById("alquileresParcelasTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const totalHa = lista.reduce((a, b) => a + (Number(b.hectareas) || 0), 0);
+  const totalMontoPactado = lista.reduce((a, b) => a + (Number(b.monto_total) || 0), 0);
+  
+  let totalCobrado = 0;
+  lista.forEach(c => {
+    const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == c.id);
+    const cobradoContrato = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+    totalCobrado += cobradoContrato;
+  });
+  const totalPendiente = Math.max(0, totalMontoPactado - totalCobrado);
+
+  const kpiHa = document.getElementById("kpiAlqHectareas");
+  if (kpiHa) kpiHa.textContent = `${formatNum(totalHa, 2)} Ha`;
+  const kpiTot = document.getElementById("kpiAlqMontoTotal");
+  if (kpiTot) kpiTot.textContent = formatMoney(totalMontoPactado);
+  const kpiCob = document.getElementById("kpiAlqCobrado");
+  if (kpiCob) kpiCob.textContent = formatMoney(totalCobrado);
+  const kpiPen = document.getElementById("kpiAlqPendiente");
+  if (kpiPen) kpiPen.textContent = formatMoney(totalPendiente);
+
+  if (lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400 italic">No hay contratos de parcelas alquiladas en esta campaña</td></tr>`;
+    return;
+  }
+
+  lista.forEach(c => {
+    const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == c.id);
+    const cobrado = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+    const saldo = Math.max(0, (Number(c.monto_total) || 0) - cobrado);
+    const haVal = Number(c.hectareas) || 0;
+
+    let badgeEstado = "";
+    if (cobrado >= c.monto_total && c.monto_total > 0) {
+      badgeEstado = `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">✅ Cobrado Total</span>`;
+    } else if (cobrado > 0) {
+      badgeEstado = `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">⏳ En Cuotas (${pagos.length})</span>`;
+    } else {
+      badgeEstado = `<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">⚠️ Pendiente</span>`;
+    }
+
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+    tr.innerHTML = `
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${c.fecha_inicio || '-'}</td>
+      <td class="py-2.5 px-3">
+        <div class="font-bold text-slate-900">${c.arrendatario || 'Particular'}</div>
+        ${c.telefono ? `<div class="text-[10px] text-slate-400 font-mono">📞 ${c.telefono}</div>` : ''}
+      </td>
+      <td class="py-2.5 px-3 text-slate-700 font-medium">${c.parcela_nombre || '-'}</td>
+      <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatNum(haVal, 2)} Ha</td>
+      <td class="py-2.5 px-3 text-right font-bold text-slate-800">${formatMoney(c.monto_total)}</td>
+      <td class="py-2.5 px-3 text-right font-black text-blue-700">${formatMoney(cobrado)}</td>
+      <td class="py-2.5 px-3 text-right font-black ${saldo > 0 ? 'text-rose-600' : 'text-slate-400'}">${formatMoney(saldo)}</td>
+      <td class="py-2.5 px-3 text-center">${badgeEstado}</td>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap">
+        <button onclick="abrirModalPagoAlquiler(${c.id})" class="bg-blue-50 text-blue-700 hover:bg-blue-100 px-2 py-1 rounded text-[11px] font-bold mr-1" title="Registrar abono">+ Abono</button>
+        <button onclick="abrirModalHistorialPagos(${c.id})" class="bg-slate-100 text-slate-700 hover:bg-slate-200 px-2 py-1 rounded text-[11px] font-bold mr-1" title="Ver historial de pagos">📋 ${pagos.length}</button>
+        <button onclick="abrirModalEditarContratoAlquiler(${c.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar contrato">✏️</button>
+        <button onclick="eliminarContratoAlquiler(${c.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar contrato">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function abrirModalContratoAlquiler() {
+  document.getElementById("formContratoAlquiler")?.reset();
+  const idEl = document.getElementById("alqId");
+  if (idEl) idEl.value = "";
+  const fechaEl = document.getElementById("alqFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+  const titleEl = document.getElementById("modalAlqTitle");
+  if (titleEl) titleEl.textContent = "Nuevo Alquiler de Parcela a Terceros";
+  const btnEl = document.getElementById("btnGuardarAlquiler");
+  if (btnEl) btnEl.textContent = "Guardar Alquiler";
+  document.getElementById("modalContratoAlquiler")?.showModal();
+}
+
+function abrirModalEditarContratoAlquiler(id) {
+  const item = (globalData.alquileresParcelas || []).find(x => x.id == id);
+  if (!item) return;
+  document.getElementById("formContratoAlquiler")?.reset();
+  document.getElementById("alqId").value = item.id;
+  document.getElementById("alqFecha").value = item.fecha_inicio || item.fecha || "";
+  document.getElementById("alqHectareas").value = item.hectareas ?? "";
+  document.getElementById("alqArrendatario").value = item.arrendatario || "";
+  document.getElementById("alqTelefono").value = item.telefono || "";
+  document.getElementById("alqParcela").value = item.parcela_nombre || "";
+  document.getElementById("alqMontoTotal").value = item.monto_total ?? "";
+  document.getElementById("alqNotas").value = item.notas || "";
+
+  const titleEl = document.getElementById("modalAlqTitle");
+  if (titleEl) titleEl.textContent = "Editar Alquiler de Parcela";
+  const btnEl = document.getElementById("btnGuardarAlquiler");
+  if (btnEl) btnEl.textContent = "Actualizar Alquiler";
+  document.getElementById("modalContratoAlquiler")?.showModal();
+}
+
+async function guardarContratoAlquiler(e) {
+  e.preventDefault();
+  const id = document.getElementById("alqId")?.value;
+  const fecha_inicio = document.getElementById("alqFecha").value;
+  const arrendatario = document.getElementById("alqArrendatario").value.trim();
+  const telefono = document.getElementById("alqTelefono").value.trim();
+  const parcela_nombre = document.getElementById("alqParcela").value.trim();
+  const haRaw = document.getElementById("alqHectareas").value;
+  const hectareas = parseFloat(String(haRaw).replace(',', '.')) || 0;
+  const totRaw = document.getElementById("alqMontoTotal").value;
+  const monto_total = parseFloat(String(totRaw).replace(',', '.')) || 0;
+  const notas = document.getElementById("alqNotas").value.trim();
+
+  const record = {
+    fecha_inicio,
+    arrendatario,
+    telefono,
+    parcela_nombre,
+    hectareas,
+    monto_total,
+    notas
+  };
+
+  if (id) {
+    await dataUpdate("alquileres_parcelas", Number(id), record);
+    mostrarToast("Alquiler actualizado exitosamente", "✅");
+  } else {
+    await dataInsert("alquileres_parcelas", record);
+    mostrarToast("Alquiler registrado exitosamente", "🌾");
+  }
+
+  cerrarDialog("modalContratoAlquiler");
+  await cargarAlquileresParcelas();
+  calcularYRenderizarDashboard();
+}
+
+async function eliminarContratoAlquiler(id) {
+  if (!confirm("¿Está seguro de eliminar este contrato de alquiler? También se eliminarán los abonos registrados.")) return;
+  
+  const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == id);
+  for (const p of pagos) {
+    await dataDelete("alquileres_pagos", p.id);
+  }
+
+  const ok = await dataDelete("alquileres_parcelas", id);
+  if (ok) {
+    await cargarAlquileresPagos();
+    await cargarAlquileresParcelas();
+    calcularYRenderizarDashboard();
+    mostrarToast("Contrato y pagos eliminados", "🗑️");
+  }
+}
+
+// ================= GESTIÓN DE ABONOS / CUOTAS DE ALQUILER =================
+function abrirModalPagoAlquiler(contratoId) {
+  const contrato = (globalData.alquileresParcelas || []).find(x => x.id == contratoId);
+  if (!contrato) return;
+
+  document.getElementById("formPagoAlquiler")?.reset();
+  document.getElementById("pagoAlquilerId").value = "";
+  document.getElementById("pagoContratoId").value = contratoId;
+
+  // Cabecera informativa
+  const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == contratoId);
+  const cobrado = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const saldo = Math.max(0, (Number(contrato.monto_total) || 0) - cobrado);
+
+  const arrEl = document.getElementById("pagoAlqInfoArrendatario");
+  if (arrEl) arrEl.textContent = contrato.arrendatario || "Particular";
+  const parcEl = document.getElementById("pagoAlqInfoParcela");
+  if (parcEl) parcEl.textContent = `${contrato.parcela_nombre || 'Parcela'} (${contrato.hectareas || 0} Ha)`;
+  const saldoEl = document.getElementById("pagoAlqInfoSaldo");
+  if (saldoEl) saldoEl.textContent = formatMoney(saldo);
+  const totEl = document.getElementById("pagoAlqInfoTotal");
+  if (totEl) totEl.textContent = `Pactado: ${formatMoney(contrato.monto_total)}`;
+
+  // Default fecha
+  const fechaEl = document.getElementById("pagoFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+
+  // Prellenar cuota sugerida (ej: "1ra parte", "2da parte", etc.)
+  const cuotaEl = document.getElementById("pagoNroCuota");
+  if (cuotaEl) {
+    const orden = pagos.length + 1;
+    cuotaEl.value = `${orden}da parte / Abono`;
+    if (orden === 1) cuotaEl.value = "1ra parte / Inicial";
+    if (orden === 2) cuotaEl.value = "2da parte";
+    if (orden === 3) cuotaEl.value = "3ra parte";
+    if (orden === 4) cuotaEl.value = "4ta parte";
+  }
+
+  // Prellenar monto si hay saldo pendiente
+  const montoEl = document.getElementById("pagoMonto");
+  if (montoEl && saldo > 0) {
+    montoEl.value = saldo;
+  }
+
+  document.getElementById("modalPagoAlquiler")?.showModal();
+}
+
+async function guardarPagoAlquiler(e) {
+  e.preventDefault();
+  const id = document.getElementById("pagoAlquilerId")?.value;
+  const alquiler_id = Number(document.getElementById("pagoContratoId")?.value);
+  const fecha = document.getElementById("pagoFecha").value;
+  const montoRaw = document.getElementById("pagoMonto").value;
+  const monto = parseFloat(String(montoRaw).replace(',', '.')) || 0;
+  const nro_cuota = document.getElementById("pagoNroCuota").value.trim();
+  const metodo = document.getElementById("pagoMetodo").value;
+  const nro_comprobante = document.getElementById("pagoComprobante").value.trim();
+  const notas = document.getElementById("pagoNotas").value.trim();
+
+  const record = {
+    alquiler_id,
+    fecha,
+    monto,
+    nro_cuota,
+    metodo,
+    nro_comprobante,
+    notas
+  };
+
+  if (id) {
+    await dataUpdate("alquileres_pagos", Number(id), record);
+    mostrarToast("Abono actualizado con éxito", "✅");
+  } else {
+    await dataInsert("alquileres_pagos", record);
+    mostrarToast("Abono registrado exitosamente", "💵");
+  }
+
+  cerrarDialog("modalPagoAlquiler");
+  await cargarAlquileresPagos();
+  renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
+  calcularYRenderizarDashboard();
+
+  // Si modal historial estaba abierto, actualizarlo
+  const modalHist = document.getElementById("modalHistorialPagos");
+  if (modalHist && modalHist.open) {
+    abrirModalHistorialPagos(alquiler_id);
+  }
+}
+
+async function eliminarPagoAlquiler(pagoId, contratoId) {
+  if (!confirm("¿Desea eliminar este abono de arriendo?")) return;
+  const ok = await dataDelete("alquileres_pagos", pagoId);
+  if (ok) {
+    await cargarAlquileresPagos();
+    renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
+    calcularYRenderizarDashboard();
+    abrirModalHistorialPagos(contratoId);
+    mostrarToast("Abono eliminado", "🗑️");
+  }
+}
+
+function abrirModalHistorialPagos(contratoId) {
+  const contrato = (globalData.alquileresParcelas || []).find(x => x.id == contratoId);
+  if (!contrato) return;
+
+  const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == contratoId);
+  const totalPactado = Number(contrato.monto_total) || 0;
+  const totalCobrado = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const saldo = Math.max(0, totalPactado - totalCobrado);
+  const pct = totalPactado > 0 ? Math.min(100, Math.round((totalCobrado / totalPactado) * 100)) : 0;
+
+  const tEl = document.getElementById("historialAlqTitle");
+  if (tEl) tEl.textContent = `Historial de Pagos: ${contrato.arrendatario}`;
+  const subEl = document.getElementById("historialAlqSubtitle");
+  if (subEl) subEl.textContent = `${contrato.parcela_nombre} (${contrato.hectareas} Ha) • Trato: ${formatMoney(totalPactado)}`;
+
+  const progTxt = document.getElementById("historialProgresoTxt");
+  if (progTxt) progTxt.textContent = `${formatMoney(totalCobrado)} / ${formatMoney(totalPactado)} (${pct}%)`;
+  const progBar = document.getElementById("historialProgressBar");
+  if (progBar) progBar.style.width = `${pct}%`;
+  const cobTxt = document.getElementById("historialCobradoTxt");
+  if (cobTxt) cobTxt.textContent = formatMoney(totalCobrado);
+  const penTxt = document.getElementById("historialPendienteTxt");
+  if (penTxt) penTxt.textContent = formatMoney(saldo);
+
+  // Botón para nuevo pago dentro de historial
+  const btnNuevo = document.getElementById("btnHistorialNuevoPago");
+  if (btnNuevo) {
+    btnNuevo.onclick = () => {
+      abrirModalPagoAlquiler(contratoId);
+    };
+  }
+
+  const tbody = document.getElementById("historialPagosTableBody");
+  if (tbody) {
+    tbody.innerHTML = "";
+    if (pagos.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-5 text-slate-400 italic">No se han registrado abonos aún para este arriendo</td></tr>`;
+    } else {
+      pagos.forEach(p => {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+        tr.innerHTML = `
+          <td class="py-2 px-3 font-mono text-[11px] text-slate-600">${p.fecha}</td>
+          <td class="py-2 px-3 font-bold text-slate-800">${p.nro_cuota || 'Abono'}</td>
+          <td class="py-2 px-3 text-right font-black text-emerald-600">${formatMoney(p.monto)}</td>
+          <td class="py-2 px-3 text-slate-600">${p.metodo || 'Efectivo'}</td>
+          <td class="py-2 px-3 text-slate-500 font-mono text-[11px]">${p.nro_comprobante || '-'}</td>
+          <td class="py-2 px-3 text-center">
+            <button onclick="eliminarPagoAlquiler(${p.id}, ${contratoId})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar abono">🗑️</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+  }
+
+  document.getElementById("modalHistorialPagos")?.showModal();
+}
+
+// ================= GESTIÓN DE INGRESOS FINANCIEROS Y OTROS =================
 async function cargarIngresosFinancieros() {
   const res = await dataFetch("ingresos_financieros", "*", "fecha", false);
-  if (!res.success) return;
-  
-  // Normalizar datos para asegurar que 'hectareas' esté presente (incluso si vino en notas como fallback)
-  const list = (res.data || []).map(item => {
-    let ha = Number(item.hectareas);
-    if (isNaN(ha) || item.hectareas === null || item.hectareas === undefined) {
-      if (item.notas && /\[Ha:\s*([0-9.]+)\]/i.test(item.notas)) {
-        ha = parseFloat(item.notas.match(/\[Ha:\s*([0-9.]+)\]/i)[1]) || 0;
-      } else {
-        ha = 0;
-      }
-    }
-    return { ...item, hectareas: ha };
-  });
+  let list = [];
+  if (res.success && Array.isArray(res.data)) {
+    list = res.data;
+  }
+
+  list = list.map(item => ({
+    ...item,
+    total: parseFloat(item.total) || 0
+  }));
 
   globalData.ingresosFinancieros = list;
   renderTablaIngresosFinancieros(list.filter(filtroPorCampana));
@@ -955,35 +1295,28 @@ function renderTablaIngresosFinancieros(lista) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  const totalHa = lista.reduce((a, b) => a + (Number(b.hectareas) || 0), 0);
   const totalMonto = lista.reduce((a, b) => a + (Number(b.total) || 0), 0);
-  const personas = new Set(lista.map(x => (x.pagador || "").trim().toLowerCase()).filter(Boolean)).size;
+  const cantidad = lista.length;
 
-  const kpiHa = document.getElementById("kpiIngFinHa");
-  if (kpiHa) kpiHa.textContent = `${formatNum(totalHa, 2)} Ha`;
   const kpiTot = document.getElementById("kpiIngFinTotal");
   if (kpiTot) kpiTot.textContent = formatMoney(totalMonto);
-  const kpiPer = document.getElementById("kpiIngFinPersonas");
-  if (kpiPer) kpiPer.textContent = `${personas} persona${personas === 1 ? '' : 's'}`;
-
-  const badgeHa = document.getElementById("badgeHaAlquiladas");
-  if (badgeHa) badgeHa.textContent = `${formatNum(totalHa, 1)} Ha`;
+  const kpiCant = document.getElementById("kpiIngFinCantidad");
+  if (kpiCant) kpiCant.textContent = `${cantidad} movimiento${cantidad === 1 ? '' : 's'}`;
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400 italic">No hay registros de alquiler de hectáreas a particulares en esta campaña</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400 italic">No hay registros de ingresos financieros en esta campaña</td></tr>`;
     return;
   }
 
   lista.forEach(inf => {
-    const haVal = Number(inf.hectareas) || 0;
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
     tr.innerHTML = `
       <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${inf.fecha}</td>
-      <td class="py-2.5 px-3 font-bold text-slate-900">${inf.pagador || 'Particular'}</td>
-      <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatNum(haVal, 2)} Ha</td>
-      <td class="py-2.5 px-3 text-slate-700">${inf.concepto}</td>
-      <td class="py-2.5 px-3 text-right font-black text-emerald-600">${formatMoney(inf.total)}</td>
+      <td class="py-2.5 px-3 font-bold text-slate-900">${inf.concepto || '-'}</td>
+      <td class="py-2.5 px-3"><span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">${inf.categoria || 'Ingreso Financiero'}</span></td>
+      <td class="py-2.5 px-3 text-slate-700">${inf.pagador || '-'}</td>
+      <td class="py-2.5 px-3 text-right font-black text-amber-700">${formatMoney(inf.total)}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${inf.nro_factura || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 max-w-[160px] truncate" title="${inf.notas || ''}">${inf.notas || '-'}</td>
       <td class="py-2.5 px-3 text-center whitespace-nowrap">
@@ -1011,9 +1344,9 @@ function abrirModalIngresoFinanciero() {
     }
   }
   const titleEl = document.getElementById("modalIngFinTitle");
-  if (titleEl) titleEl.textContent = "Registrar Alquiler de Hectáreas a Particulares";
+  if (titleEl) titleEl.textContent = "Registrar Ingreso Financiero & Otros";
   const btnEl = document.getElementById("btnGuardarIngFin");
-  if (btnEl) btnEl.textContent = "Guardar Alquiler";
+  if (btnEl) btnEl.textContent = "Guardar Ingreso";
   document.getElementById("modalIngresoFinanciero")?.showModal();
 }
 
@@ -1023,17 +1356,17 @@ function abrirModalEditarIngresoFinanciero(id) {
   document.getElementById("formIngresoFinanciero")?.reset();
   document.getElementById("ingFinId").value = item.id;
   document.getElementById("ingFinFecha").value = item.fecha || "";
-  document.getElementById("ingFinHectareas").value = item.hectareas ?? "";
-  document.getElementById("ingFinPagador").value = item.pagador || "";
+  document.getElementById("ingFinCategoria").value = item.categoria || "Otro Ingreso";
   document.getElementById("ingFinConcepto").value = item.concepto || "";
   document.getElementById("ingFinTotal").value = item.total ?? "";
+  document.getElementById("ingFinPagador").value = item.pagador || "";
   document.getElementById("ingFinNroFactura").value = item.nro_factura || "";
   document.getElementById("ingFinNotas").value = item.notas || "";
 
   const titleEl = document.getElementById("modalIngFinTitle");
-  if (titleEl) titleEl.textContent = "Editar Alquiler de Hectáreas";
+  if (titleEl) titleEl.textContent = "Editar Ingreso Financiero";
   const btnEl = document.getElementById("btnGuardarIngFin");
-  if (btnEl) btnEl.textContent = "Actualizar Alquiler";
+  if (btnEl) btnEl.textContent = "Actualizar Ingreso";
   document.getElementById("modalIngresoFinanciero")?.showModal();
 }
 
@@ -1041,31 +1374,30 @@ async function guardarIngresoFinanciero(e) {
   e.preventDefault();
   const id = document.getElementById("ingFinId")?.value;
   const fecha = document.getElementById("ingFinFecha").value;
-  const pagador = document.getElementById("ingFinPagador").value.trim();
+  const categoria = document.getElementById("ingFinCategoria").value;
   const concepto = document.getElementById("ingFinConcepto").value.trim();
-  const haRaw = document.getElementById("ingFinHectareas").value;
-  const hectareas = parseFloat(String(haRaw).replace(',', '.')) || 0;
   const totRaw = document.getElementById("ingFinTotal").value;
   const total = parseFloat(String(totRaw).replace(',', '.')) || 0;
+  const pagador = document.getElementById("ingFinPagador").value.trim();
   const nro_factura = document.getElementById("ingFinNroFactura").value.trim();
   const notas = document.getElementById("ingFinNotas").value.trim();
 
   const record = {
     fecha,
-    pagador,
+    categoria,
     concepto,
-    hectareas,
     total,
+    pagador,
     nro_factura,
     notas
   };
 
   if (id) {
     await dataUpdate("ingresos_financieros", Number(id), record);
-    mostrarToast("Alquiler actualizado exitosamente", "✅");
+    mostrarToast("Ingreso financiero actualizado", "✅");
   } else {
     await dataInsert("ingresos_financieros", record);
-    mostrarToast("Alquiler registrado exitosamente", "💵");
+    mostrarToast("Ingreso financiero registrado", "💵");
   }
 
   cerrarDialog("modalIngresoFinanciero");
@@ -1078,8 +1410,10 @@ async function eliminarIngresoFinanciero(id) {
   if (ok) {
     await cargarIngresosFinancieros();
     calcularYRenderizarDashboard();
+    mostrarToast("Ingreso eliminado", "🗑️");
   }
 }
+
 
 async function cargarJornales() {
   const res = await dataFetch("jornales", "*", "fecha", false);
@@ -1202,6 +1536,7 @@ function calcularYRenderizarDashboard() {
   const variedades = globalData.variedades;
 
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+  const totalCobradoAlquileres = (globalData.alquileresPagos || []).filter(filtroPorCampana).reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
   const totalIngresosFinancieros = ingresosFin.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
   const totalKilos = ventas.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
   const totalTratamientos = tratamientos.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
@@ -1215,7 +1550,7 @@ function calcularYRenderizarDashboard() {
   // Al aplicarse a un cultivo, ese monto pasa a ser gasto específico del cultivo y se descuenta del gasto general.
   const insumosAlmacenGeneral = Math.max(0, totalCompras - totalTratamientos);
 
-  const totalIngresos = totalVentas + totalIngresosFinancieros;
+  const totalIngresos = totalVentas + totalCobradoAlquileres + totalIngresosFinancieros;
   // Egresos totales = Tratamientos específicos + Insumos en almacén no aplicados (general) + Específicos + Generales + Jornales
   const totalGastos = totalTratamientos + insumosAlmacenGeneral + totalEspecificos + totalGenerales + totalJornales;
   const resultadoNeto = totalIngresos - totalGastos;
@@ -1244,8 +1579,9 @@ function calcularYRenderizarDashboard() {
   // Actualizar Valor Stock
   recalcularStockYValorizacion();
 
-  // Hectáreas alquiladas a personas particulares (desde ingresos financieros de la campaña activa)
-  const totalHaAlquiladas = ingresosFin.reduce((acc, f) => acc + (Number(f.hectareas) || 0), 0);
+  // Hectáreas alquiladas a personas particulares (desde contratos de parcelas alquiladas en la campaña activa)
+  const alquileresCamp = (globalData.alquileresParcelas || []).filter(filtroPorCampana);
+  const totalHaAlquiladas = alquileresCamp.reduce((acc, a) => acc + (Number(a.hectareas) || 0), 0);
   let haTexto = "0 hectáreas (Sin alquilar)";
   if (totalHaAlquiladas > 0) {
     haTexto = (totalHaAlquiladas % 1 === 0)
@@ -1347,10 +1683,13 @@ function renderTablaBalanceCampanas() {
   const aniosSet = new Set();
   (globalData.campanas || []).forEach(c => { if (c.anio) aniosSet.add(Number(c.anio)); });
   
-  [...globalData.ventas, ...(globalData.ingresosFinancieros || []), ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales, ...globalData.compras].forEach(item => {
-    if (item && item.fecha) {
-      const y = parseInt(item.fecha.substring(0, 4), 10);
-      if (!isNaN(y) && y > 2000 && y < 2100) aniosSet.add(y);
+  [...globalData.ventas, ...(globalData.ingresosFinancieros || []), ...(globalData.alquileresPagos || []), ...(globalData.alquileresParcelas || []), ...globalData.tratamientos, ...globalData.gastosEspecificos, ...globalData.gastosGenerales, ...globalData.jornales, ...globalData.compras].forEach(item => {
+    if (item) {
+      const f = item.fecha || item.fecha_inicio;
+      if (f) {
+        const y = parseInt(f.substring(0, 4), 10);
+        if (!isNaN(y) && y > 2000 && y < 2100) aniosSet.add(y);
+      }
     }
   });
 
@@ -1370,18 +1709,24 @@ function renderTablaBalanceCampanas() {
   let granTotalKilos = 0;
 
   aniosOrdenados.forEach(anio => {
-    const filtroAnio = item => item && item.fecha && item.fecha.startsWith(String(anio));
+    const filtroAnio = item => {
+      if (!item) return false;
+      const f = item.fecha || item.fecha_inicio;
+      return f && f.startsWith(String(anio));
+    };
     
     const vList = globalData.ventas.filter(filtroAnio);
     const ifList = (globalData.ingresosFinancieros || []).filter(filtroAnio);
+    const apList = (globalData.alquileresPagos || []).filter(filtroAnio);
     const tList = globalData.tratamientos.filter(filtroAnio);
     const jList = globalData.jornales.filter(filtroAnio);
     const geList = globalData.gastosEspecificos.filter(filtroAnio);
     const ggList = globalData.gastosGenerales.filter(filtroAnio);
     const cList = globalData.compras.filter(filtroAnio);
 
-    const ingAlquiler = ifList.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
-    const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0) + ingAlquiler;
+    const ingCobrosAlquiler = apList.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+    const ingFinancieros = ifList.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+    const ingresos = vList.reduce((acc, v) => acc + (Number(v.total) || 0), 0) + ingCobrosAlquiler + ingFinancieros;
     const kilos = vList.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
     const insumos = tList.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
     const compras = cList.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
@@ -2266,6 +2611,8 @@ async function confirmarLimpiarBaseDeDatos() {
     // 1. Si Supabase está conectado, borrar datos de tablas transaccionales y variedades
     if (supabaseClient) {
       const tablas = [
+        "alquileres_pagos",
+        "alquileres_parcelas",
         "ventas",
         "tratamientos",
         "gastos_especificos",
@@ -2292,6 +2639,8 @@ async function confirmarLimpiarBaseDeDatos() {
     // 3. Resetear memoria local
     localStorage.removeItem("fundo_arboles_custom");
     localStorage.removeItem("fundo_arboles_reales_iniciado");
+    setLocalTable("alquileres_pagos", []);
+    setLocalTable("alquileres_parcelas", []);
     setLocalTable("ingresos_financieros", []);
 
     globalData.variedades = [];
@@ -2299,6 +2648,8 @@ async function confirmarLimpiarBaseDeDatos() {
     globalData.tratamientos = [];
     globalData.gastosEspecificos = [];
     globalData.gastosGenerales = [];
+    globalData.alquileresParcelas = [];
+    globalData.alquileresPagos = [];
     globalData.ingresosFinancieros = [];
     globalData.jornales = [];
     globalData.compras = [];
