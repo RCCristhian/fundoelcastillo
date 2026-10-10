@@ -579,7 +579,15 @@
               </div>
               <p class="text-[11px] sm:text-xs text-slate-500">Gestión de hectáreas cedidas a particulares, costo pactado de arriendo y control de cobros en partes (cuotas)</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs">
+                <span class="text-slate-500 font-semibold mr-1.5">Filtro:</span>
+                <select id="filtroAlquileresCampana" onchange="cambiarFiltroAlquileres(this.value)" class="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer">
+                  <option value="todas" selected>📋 Todos los Contratos (Todos los años)</option>
+                  <option value="2026">🌾 Campaña 2026</option>
+                  <option value="2025">🌾 Campaña 2025</option>
+                </select>
+              </div>
               <button onclick="abrirModalContratoAlquiler()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition shadow-xs">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 + Nuevo Alquiler de Parcela
@@ -611,7 +619,13 @@
             </div>
           </div>
 
-          <div class="overflow-x-auto mt-3">
+          <!-- Vista Móvil en Tarjetas (Cards) -->
+          <div id="alquileresParcelasCards" class="grid grid-cols-1 gap-3 mt-3 lg:hidden">
+            <!-- Llenado dinámico vía JS -->
+          </div>
+
+          <!-- Vista Escritorio en Tabla -->
+          <div class="overflow-x-auto mt-3 hidden lg:block">
             <table class="w-full text-left text-xs text-slate-700">
               <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
                 <tr>
@@ -1333,9 +1347,15 @@
           <input type="text" id="alqNotas" placeholder="Ej: Pago en 3 partes: inicial, floración y cosecha" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-emerald-500">
         </div>
 
-        <div class="pt-3 flex justify-end space-x-2 border-t">
-          <button type="button" onclick="cerrarDialog('modalContratoAlquiler')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" id="btnGuardarAlquiler" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">Guardar Alquiler</button>
+        <div class="pt-3 flex items-center justify-between border-t border-slate-200">
+          <button type="button" id="btnEliminarAlquilerModal" onclick="eliminarAlquilerDesdeModal()" class="hidden px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow-2xs">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Eliminar Arrendatario
+          </button>
+          <div class="flex items-center space-x-2 ml-auto">
+            <button type="button" onclick="cerrarDialog('modalContratoAlquiler')" class="px-4 py-2 border rounded-lg text-slate-600 hover:bg-slate-100 text-xs font-semibold">Cancelar</button>
+            <button type="submit" id="btnGuardarAlquiler" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow text-xs">Guardar Alquiler</button>
+          </div>
         </div>
       </form>
     </div>
@@ -1425,7 +1445,12 @@
           <h3 id="historialAlqTitle" class="font-bold text-sm">Historial de Cobros en Partes</h3>
           <p id="historialAlqSubtitle" class="text-[11px] text-slate-400 mt-0.5">-</p>
         </div>
-        <button onclick="cerrarDialog('modalHistorialPagos')" class="text-white/80 hover:text-white text-lg">&times;</button>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btnHistorialEditarArrendatario" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition" title="Editar datos del arrendatario">
+            ✏️ Editar
+          </button>
+          <button onclick="cerrarDialog('modalHistorialPagos')" class="text-white/80 hover:text-white text-lg">&times;</button>
+        </div>
       </div>
 
       <div class="p-5 space-y-4">
@@ -1912,6 +1937,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261008_16"></script>
+  <script src="app.js?v=20261009_01"></script>
 </body>
 </html>

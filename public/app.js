@@ -363,7 +363,7 @@ function cambiarCampana(val) {
   renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
   renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
   renderTablaGastosGenerales(globalData.gastosGenerales.filter(filtroPorCampana));
-  renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
+  aplicarFiltroAlquileres();
   renderTablaIngresosFinancieros((globalData.ingresosFinancieros || []).filter(filtroPorCampana));
   renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
   renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
@@ -905,6 +905,50 @@ function renderTablaGastosGenerales(lista) {
 }
 
 // ================= GESTIÓN DE ALQUILER DE PARCELAS A TERCEROS =================
+let filtroAlquileresCampana = "todas";
+
+function cambiarFiltroAlquileres(val) {
+  filtroAlquileresCampana = val;
+  aplicarFiltroAlquileres();
+}
+
+function actualizarOpcionesFiltroAlquileres() {
+  const sel = document.getElementById("filtroAlquileresCampana");
+  if (!sel) return;
+
+  const anios = new Set();
+  (globalData.campanas || []).forEach(c => { if (c.anio) anios.add(String(c.anio)); });
+  (globalData.alquileresParcelas || []).forEach(a => {
+    const f = a.fecha || a.fecha_inicio || "";
+    if (f.length >= 4) {
+      const anio = f.substring(0, 4);
+      if (!isNaN(parseInt(anio))) anios.add(anio);
+    }
+  });
+
+  const aniosSorted = Array.from(anios).sort().reverse();
+  const valActual = filtroAlquileresCampana;
+
+  let html = `<option value="todas">📋 Todos los Contratos (Todos los años)</option>`;
+  aniosSorted.forEach(a => {
+    html += `<option value="${a}">🌾 Campaña ${a}</option>`;
+  });
+  sel.innerHTML = html;
+  sel.value = valActual || "todas";
+}
+
+function aplicarFiltroAlquileres() {
+  const list = globalData.alquileresParcelas || [];
+  let filtrados = list;
+  if (filtroAlquileresCampana !== "todas") {
+    filtrados = list.filter(item => {
+      const f = item.fecha || item.fecha_inicio || "";
+      return f.startsWith(String(filtroAlquileresCampana));
+    });
+  }
+  renderTablaAlquileresParcelas(filtrados);
+}
+
 async function cargarAlquileresParcelas() {
   const res = await dataFetch("alquileres_parcelas", "*", "fecha_inicio", false);
   let list = [];
@@ -921,7 +965,8 @@ async function cargarAlquileresParcelas() {
   }));
 
   globalData.alquileresParcelas = list;
-  renderTablaAlquileresParcelas(list.filter(filtroPorCampana));
+  actualizarOpcionesFiltroAlquileres();
+  aplicarFiltroAlquileres();
 }
 
 async function cargarAlquileresPagos() {
@@ -941,8 +986,10 @@ async function cargarAlquileresPagos() {
 
 function renderTablaAlquileresParcelas(lista) {
   const tbody = document.getElementById("alquileresParcelasTableBody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
+  const cardsContainer = document.getElementById("alquileresParcelasCards");
+  if (!tbody && !cardsContainer) return;
+  if (tbody) tbody.innerHTML = "";
+  if (cardsContainer) cardsContainer.innerHTML = "";
 
   const totalHa = lista.reduce((a, b) => a + (Number(b.hectareas) || 0), 0);
   const totalMontoPactado = lista.reduce((a, b) => a + (Number(b.monto_total) || 0), 0);
@@ -965,7 +1012,12 @@ function renderTablaAlquileresParcelas(lista) {
   if (kpiPen) kpiPen.textContent = formatMoney(totalPendiente);
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400 italic">No hay contratos de parcelas alquiladas en esta campaña</td></tr>`;
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-slate-400 italic">No hay contratos de parcelas alquiladas con el filtro seleccionado</td></tr>`;
+    }
+    if (cardsContainer) {
+      cardsContainer.innerHTML = `<div class="p-6 text-center text-slate-400 italic bg-slate-50 border border-slate-200 rounded-xl">No hay contratos de parcelas alquiladas con el filtro seleccionado</div>`;
+    }
     return;
   }
 
@@ -984,28 +1036,85 @@ function renderTablaAlquileresParcelas(lista) {
       badgeEstado = `<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">⚠️ Pendiente</span>`;
     }
 
-    const tr = document.createElement("tr");
-    tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
-    tr.innerHTML = `
-      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${c.fecha_inicio || '-'}</td>
-      <td class="py-2.5 px-3">
-        <div class="font-bold text-slate-900">${c.arrendatario || 'Particular'}</div>
-        ${c.telefono ? `<div class="text-[10px] text-slate-400 font-mono">📞 ${c.telefono}</div>` : ''}
-      </td>
-      <td class="py-2.5 px-3 text-slate-700 font-medium">${c.parcela_nombre || '-'}</td>
-      <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatNum(haVal, 2)} Ha</td>
-      <td class="py-2.5 px-3 text-right font-bold text-slate-800">${formatMoney(c.monto_total)}</td>
-      <td class="py-2.5 px-3 text-right font-black text-blue-700">${formatMoney(cobrado)}</td>
-      <td class="py-2.5 px-3 text-right font-black ${saldo > 0 ? 'text-rose-600' : 'text-slate-400'}">${formatMoney(saldo)}</td>
-      <td class="py-2.5 px-3 text-center">${badgeEstado}</td>
-      <td class="py-2.5 px-3 text-center whitespace-nowrap">
-        <button onclick="abrirModalPagoAlquiler(${c.id})" class="bg-blue-50 text-blue-700 hover:bg-blue-100 px-2 py-1 rounded text-[11px] font-bold mr-1" title="Registrar abono">+ Abono</button>
-        <button onclick="abrirModalHistorialPagos(${c.id})" class="bg-slate-100 text-slate-700 hover:bg-slate-200 px-2 py-1 rounded text-[11px] font-bold mr-1" title="Ver historial de pagos">📋 ${pagos.length}</button>
-        <button onclick="abrirModalEditarContratoAlquiler(${c.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar contrato">✏️</button>
-        <button onclick="eliminarContratoAlquiler(${c.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar contrato">🗑️</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
+    // 1. Fila de tabla (Escritorio)
+    if (tbody) {
+      const tr = document.createElement("tr");
+      tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+      tr.innerHTML = `
+        <td class="py-3 px-3 font-mono text-xs text-slate-600 font-semibold">${c.fecha_inicio || '-'}</td>
+        <td class="py-3 px-3">
+          <div class="font-bold text-slate-900 text-xs">${c.arrendatario || 'Particular'}</div>
+          ${c.telefono ? `<div class="text-[11px] text-slate-500 font-mono mt-0.5">📞 ${c.telefono}</div>` : ''}
+        </td>
+        <td class="py-3 px-3 text-slate-700 text-xs font-medium">${c.parcela_nombre || '-'}</td>
+        <td class="py-3 px-3 text-right font-black text-emerald-700 text-xs">${formatNum(haVal, 2)} Ha</td>
+        <td class="py-3 px-3 text-right font-bold text-slate-800 text-xs">${formatMoney(c.monto_total)}</td>
+        <td class="py-3 px-3 text-right font-black text-blue-700 text-xs">${formatMoney(cobrado)}</td>
+        <td class="py-3 px-3 text-right font-black text-xs ${saldo > 0 ? 'text-rose-600' : 'text-emerald-600'}">${formatMoney(saldo)}</td>
+        <td class="py-3 px-3 text-center">${badgeEstado}</td>
+        <td class="py-3 px-3 text-center whitespace-nowrap">
+          <div class="inline-flex items-center gap-1.5 flex-wrap justify-center">
+            <button onclick="abrirModalPagoAlquiler(${c.id})" class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-[11px] transition shadow-2xs" title="Registrar abono">+ Abono</button>
+            <button onclick="abrirModalHistorialPagos(${c.id})" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px] transition" title="Ver historial de abonos">📋 Pagos (${pagos.length})</button>
+            <button onclick="abrirModalEditarContratoAlquiler(${c.id})" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-[11px] transition shadow-2xs" title="Editar datos del arrendatario">✏️ Editar</button>
+            <button onclick="eliminarContratoAlquiler(${c.id})" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px] transition shadow-2xs" title="Eliminar arrendatario">🗑️ Eliminar</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    // 2. Tarjeta móvil (Cards)
+    if (cardsContainer) {
+      const card = document.createElement("div");
+      card.className = "bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3";
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400">Inicio: ${c.fecha_inicio || '-'}</span>
+            <h4 class="font-extrabold text-slate-900 text-sm mt-0.5">${c.arrendatario || 'Particular'}</h4>
+            <p class="text-xs text-slate-600 font-medium">📍 ${c.parcela_nombre || '-'} • <span class="text-emerald-700 font-bold">${formatNum(haVal, 2)} Ha</span></p>
+            ${c.telefono ? `<p class="text-[11px] text-slate-500 font-mono mt-0.5">📞 ${c.telefono}</p>` : ''}
+          </div>
+          <div class="text-right shrink-0">
+            ${badgeEstado}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl text-center">
+          <div>
+            <span class="text-[10px] text-slate-500 block">Total</span>
+            <span class="text-xs font-bold text-slate-800">${formatMoney(c.monto_total)}</span>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-500 block">Cobrado</span>
+            <span class="text-xs font-extrabold text-blue-700">${formatMoney(cobrado)}</span>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-500 block">Saldo</span>
+            <span class="text-xs font-black ${saldo > 0 ? 'text-rose-600' : 'text-emerald-600'}">${formatMoney(saldo)}</span>
+          </div>
+        </div>
+
+        ${c.notas ? `<p class="text-[11px] text-slate-500 italic bg-amber-50/60 p-2 rounded-lg border border-amber-100">📝 ${c.notas}</p>` : ''}
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button onclick="abrirModalPagoAlquiler(${c.id})" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-2xs">
+            + Abono
+          </button>
+          <button onclick="abrirModalHistorialPagos(${c.id})" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+            📋 Pagos (${pagos.length})
+          </button>
+          <button onclick="abrirModalEditarContratoAlquiler(${c.id})" class="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+            ✏️ Editar
+          </button>
+          <button onclick="eliminarContratoAlquiler(${c.id})" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+            🗑️ Eliminar
+          </button>
+        </div>
+      `;
+      cardsContainer.appendChild(card);
+    }
   });
 }
 
@@ -1028,6 +1137,8 @@ function abrirModalContratoAlquiler() {
   if (titleEl) titleEl.textContent = "Nuevo Alquiler de Parcela a Terceros";
   const btnEl = document.getElementById("btnGuardarAlquiler");
   if (btnEl) btnEl.textContent = "Guardar Alquiler";
+  const btnEliminar = document.getElementById("btnEliminarAlquilerModal");
+  if (btnEliminar) btnEliminar.classList.add("hidden");
   document.getElementById("modalContratoAlquiler")?.showModal();
 }
 
@@ -1045,10 +1156,21 @@ function abrirModalEditarContratoAlquiler(id) {
   document.getElementById("alqNotas").value = item.notas || "";
 
   const titleEl = document.getElementById("modalAlqTitle");
-  if (titleEl) titleEl.textContent = "Editar Alquiler de Parcela";
+  if (titleEl) titleEl.textContent = `✏️ Editar Alquiler: ${item.arrendatario}`;
   const btnEl = document.getElementById("btnGuardarAlquiler");
   if (btnEl) btnEl.textContent = "Actualizar Alquiler";
+
+  const btnEliminar = document.getElementById("btnEliminarAlquilerModal");
+  if (btnEliminar) btnEliminar.classList.remove("hidden");
+
+  cerrarDialog("modalHistorialPagos");
   document.getElementById("modalContratoAlquiler")?.showModal();
+}
+
+function eliminarAlquilerDesdeModal() {
+  const id = document.getElementById("alqId")?.value;
+  if (!id) return;
+  eliminarContratoAlquiler(Number(id));
 }
 
 async function guardarContratoAlquiler(e) {
@@ -1066,6 +1188,7 @@ async function guardarContratoAlquiler(e) {
 
   const record = {
     fecha_inicio,
+    fecha: fecha_inicio,
     arrendatario,
     telefono,
     parcela_nombre,
@@ -1074,12 +1197,36 @@ async function guardarContratoAlquiler(e) {
     notas
   };
 
+  // Si la fecha pertenece a un año nuevo o previo (ej: 2025 o 2024), registrar campaña si no existiera
+  const anioStr = fecha_inicio ? fecha_inicio.substring(0, 4) : "";
+  const anioNum = parseInt(anioStr);
+  if (anioNum && !isNaN(anioNum)) {
+    const existeCampana = (globalData.campanas || []).some(c => Number(c.anio) === anioNum);
+    if (!existeCampana) {
+      const campData = { nombre: `Campaña ${anioNum}`, anio: anioNum, activa: false, notas: "Creada automáticamente" };
+      dataInsert("campanas", campData).catch(() => {});
+      const custom = JSON.parse(localStorage.getItem("fundo_campanas_custom") || "[]");
+      if (!custom.some(c => Number(c.anio) === anioNum)) {
+        custom.push({ id: Date.now(), ...campData });
+        localStorage.setItem("fundo_campanas_custom", JSON.stringify(custom));
+      }
+      await cargarCampanas();
+    }
+  }
+
   if (id) {
     await dataUpdate("alquileres_parcelas", Number(id), record);
-    mostrarToast("Alquiler actualizado exitosamente", "✅");
+    mostrarToast(`Arrendatario "${arrendatario}" actualizado exitosamente`, "✅");
   } else {
     await dataInsert("alquileres_parcelas", record);
-    mostrarToast("Alquiler registrado exitosamente", "🌾");
+    mostrarToast(`Arrendatario "${arrendatario}" registrado exitosamente`, "🌾");
+  }
+
+  // Asegurar que el filtro muestre el nuevo contrato para que no desaparezca
+  if (filtroAlquileresCampana !== "todas" && anioStr && filtroAlquileresCampana !== anioStr) {
+    filtroAlquileresCampana = "todas";
+    const sel = document.getElementById("filtroAlquileresCampana");
+    if (sel) sel.value = "todas";
   }
 
   cerrarDialog("modalContratoAlquiler");
@@ -1088,20 +1235,42 @@ async function guardarContratoAlquiler(e) {
 }
 
 async function eliminarContratoAlquiler(id) {
-  if (!confirm("¿Está seguro de eliminar este contrato de alquiler? También se eliminarán los abonos registrados.")) return;
-  
+  const item = (globalData.alquileresParcelas || []).find(x => x.id == id);
+  const nom = item ? item.arrendatario : "este arrendatario";
   const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == id);
-  for (const p of pagos) {
-    await dataDelete("alquileres_pagos", p.id);
+
+  let confirmMsg = `¿Estás seguro de que deseas eliminar al arrendatario "${nom}"?`;
+  if (pagos.length > 0) {
+    confirmMsg += `\n\n⚠️ Se eliminarán también los ${pagos.length} abono(s) registrados para este arriendo.`;
   }
 
-  const ok = await dataDelete("alquileres_parcelas", id);
-  if (ok) {
-    await cargarAlquileresPagos();
-    await cargarAlquileresParcelas();
-    calcularYRenderizarDashboard();
-    mostrarToast("Contrato y pagos eliminados", "🗑️");
+  if (!confirm(confirmMsg)) return;
+
+  // 1. Eliminar pagos y contrato en Supabase si está disponible
+  if (supabaseClient) {
+    try {
+      await supabaseClient.from("alquileres_pagos").delete().eq("alquiler_id", id);
+      await supabaseClient.from("alquileres_parcelas").delete().eq("id", id);
+    } catch (err) {
+      console.warn("Error eliminando contrato en Supabase:", err);
+    }
   }
+
+  // 2. Eliminar en memoria local
+  const localPagos = getLocalTable("alquileres_pagos").filter(p => p.alquiler_id != id);
+  setLocalTable("alquileres_pagos", localPagos);
+  globalData.alquileresPagos = localPagos;
+
+  const localAlq = getLocalTable("alquileres_parcelas").filter(a => a.id != id);
+  setLocalTable("alquileres_parcelas", localAlq);
+  globalData.alquileresParcelas = localAlq;
+
+  cerrarDialog("modalContratoAlquiler");
+  cerrarDialog("modalHistorialPagos");
+
+  mostrarToast(`Arrendatario "${nom}" eliminado exitosamente`, "🗑️");
+  aplicarFiltroAlquileres();
+  calcularYRenderizarDashboard();
 }
 
 // ================= GESTIÓN DE ABONOS / CUOTAS DE ALQUILER =================
@@ -1192,7 +1361,7 @@ async function guardarPagoAlquiler(e) {
 
   cerrarDialog("modalPagoAlquiler");
   await cargarAlquileresPagos();
-  renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
+  aplicarFiltroAlquileres();
   calcularYRenderizarDashboard();
 
   // Si modal historial estaba abierto, actualizarlo
@@ -1207,7 +1376,7 @@ async function eliminarPagoAlquiler(pagoId, contratoId) {
   const ok = await dataDelete("alquileres_pagos", pagoId);
   if (ok) {
     await cargarAlquileresPagos();
-    renderTablaAlquileresParcelas((globalData.alquileresParcelas || []).filter(filtroPorCampana));
+    aplicarFiltroAlquileres();
     calcularYRenderizarDashboard();
     abrirModalHistorialPagos(contratoId);
     mostrarToast("Abono eliminado", "🗑️");
@@ -1237,6 +1406,14 @@ function abrirModalHistorialPagos(contratoId) {
   if (cobTxt) cobTxt.textContent = formatMoney(totalCobrado);
   const penTxt = document.getElementById("historialPendienteTxt");
   if (penTxt) penTxt.textContent = formatMoney(saldo);
+
+  // Botón para editar contrato desde el historial
+  const btnEditar = document.getElementById("btnHistorialEditarArrendatario");
+  if (btnEditar) {
+    btnEditar.onclick = () => {
+      abrirModalEditarContratoAlquiler(contratoId);
+    };
+  }
 
   // Botón para nuevo pago dentro de historial
   const btnNuevo = document.getElementById("btnHistorialNuevoPago");
@@ -1579,9 +1756,27 @@ function calcularYRenderizarDashboard() {
   // Actualizar Valor Stock
   recalcularStockYValorizacion();
 
-  // Hectáreas alquiladas a personas particulares (desde contratos de parcelas alquiladas en la campaña activa)
-  const alquileresCamp = (globalData.alquileresParcelas || []).filter(filtroPorCampana);
-  const totalHaAlquiladas = alquileresCamp.reduce((acc, a) => acc + (Number(a.hectareas) || 0), 0);
+  // Hectáreas alquiladas a personas particulares (contratos vigentes de parcelas alquiladas)
+  const todosAlquileres = globalData.alquileresParcelas || [];
+  let alquileresRelevantes = todosAlquileres;
+  if (campanaActiva !== "todas") {
+    const anioActivo = parseInt(campanaActiva);
+    alquileresRelevantes = todosAlquileres.filter(a => {
+      const f = a.fecha || a.fecha_inicio || "";
+      const anio = parseInt(f.substring(0, 4));
+      if (anio === anioActivo) return true;
+      if (anio <= anioActivo) {
+        const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == a.id);
+        const cobrado = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+        return ((Number(a.monto_total) || 0) - cobrado) > 0;
+      }
+      return false;
+    });
+    if (alquileresRelevantes.length === 0 && todosAlquileres.length > 0) {
+      alquileresRelevantes = todosAlquileres;
+    }
+  }
+  const totalHaAlquiladas = alquileresRelevantes.reduce((acc, a) => acc + (Number(a.hectareas) || 0), 0);
   let haTexto = "0 hectáreas (Sin alquilar)";
   if (totalHaAlquiladas > 0) {
     haTexto = (totalHaAlquiladas % 1 === 0)
