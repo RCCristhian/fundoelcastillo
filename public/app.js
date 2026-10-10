@@ -461,6 +461,11 @@ function cambiarCampana(val) {
   campanaActiva = val;
   localStorage.setItem("fundo_campana_activa", campanaActiva);
   
+  // Sincronizar filtro de alquileres con la campaña seleccionada
+  filtroAlquileresCampana = val;
+  const selAlq = document.getElementById("filtroAlquileresCampana");
+  if (selAlq) selAlq.value = val;
+
   // Actualizar fechas por defecto de modales según la campaña
   if (val !== "todas") {
     const hoy = new Date();
@@ -576,9 +581,9 @@ async function eliminarCampana(id, nombre, anio) {
 
 function filtroPorCampana(item) {
   if (campanaActiva === "todas") return true;
-  if (!item) return true;
+  if (!item) return false;
   const f = item.fecha || item.fecha_inicio;
-  if (!f) return true;
+  if (!f) return false;
   return f.startsWith(String(campanaActiva));
 }
 
@@ -1816,6 +1821,50 @@ function renderTablaCompras(lista) {
   });
 }
 
+// ================= CONTROL MODO DE BALANCE (FUNDO VS CULTIVOS) =================
+let modoBalanceDashboard = "fundo"; // "fundo" | "cultivos"
+
+function cambiarModoBalance(modo) {
+  modoBalanceDashboard = modo;
+  const btnFundo = document.getElementById("btnBalanceFundo");
+  const btnCultivos = document.getElementById("btnBalanceCultivos");
+  const badgeModo = document.getElementById("badgeModoBalance");
+  const descModo = document.getElementById("descModoBalance");
+
+  if (modo === "fundo") {
+    if (btnFundo) {
+      btnFundo.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs bg-slate-900 text-white flex items-center gap-1.5";
+    }
+    if (btnCultivos) {
+      btnCultivos.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center gap-1.5";
+    }
+    if (badgeModo) {
+      badgeModo.textContent = "Todo el Fundo";
+      badgeModo.className = "bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider";
+    }
+    if (descModo) {
+      descModo.textContent = "Balance integral: incluye ventas de cosechas, arriendos de parcelas a terceros y gastos generales.";
+    }
+  } else {
+    if (btnFundo) {
+      btnFundo.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center gap-1.5";
+    }
+    if (btnCultivos) {
+      btnCultivos.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs bg-emerald-600 text-white flex items-center gap-1.5";
+    }
+    if (badgeModo) {
+      badgeModo.textContent = "Solo Cultivos";
+      badgeModo.className = "bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider";
+    }
+    if (descModo) {
+      descModo.textContent = "Rendimiento directo de campo: evalúa únicamente la producción agrícola (fruta vendida menos mano de obra, insumos y gastos directos de cultivo).";
+    }
+  }
+
+  calcularYRenderizarDashboard();
+}
+window.cambiarModoBalance = cambiarModoBalance;
+
 // ================= MOTOR DE CÁLCULO DE DASHBOARD Y RENTABILIDAD =================
 function calcularYRenderizarDashboard() {
   const ventas = globalData.ventas.filter(filtroPorCampana);
@@ -1827,8 +1876,20 @@ function calcularYRenderizarDashboard() {
   const compras = globalData.compras.filter(filtroPorCampana);
   const variedades = globalData.variedades;
 
+  // Alquileres de parcelas a terceros: AISLAMIENTO ESTRICTO POR CAMPAÑA
+  const alquileresCamp = (globalData.alquileresParcelas || []).filter(filtroPorCampana);
+  const alquileresCampIds = new Set(alquileresCamp.map(a => a.id));
+
+  // Cobros de alquileres: estrictamente de contratos de esta campaña o pagos fechados en la campaña
+  const pagosAlquilerCamp = (globalData.alquileresPagos || []).filter(p => {
+    if (campanaActiva === "todas") return true;
+    if (p.alquiler_id && alquileresCampIds.has(p.alquiler_id)) return true;
+    const f = p.fecha || "";
+    return f.startsWith(String(campanaActiva));
+  });
+
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
-  const totalCobradoAlquileres = (globalData.alquileresPagos || []).filter(filtroPorCampana).reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const totalCobradoAlquileres = pagosAlquilerCamp.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
   const totalIngresosFinancieros = ingresosFin.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
   const totalKilos = ventas.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
   const totalTratamientos = tratamientos.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
@@ -1838,60 +1899,150 @@ function calcularYRenderizarDashboard() {
   const totalHoras = jornales.reduce((acc, j) => acc + (Number(j.horas) || 0), 0);
   const totalCompras = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
 
-  // Compras de insumos: se consideran gasto general prorrateado SOLO hasta que se usan en un tratamiento.
-  // Al aplicarse a un cultivo, ese monto pasa a ser gasto específico del cultivo y se descuenta del gasto general.
+  // Insumos en almacén no aplicados (se prorratean como gasto general compartido hasta aplicarse a un cultivo)
   const insumosAlmacenGeneral = Math.max(0, totalCompras - totalTratamientos);
 
-  const totalIngresos = totalVentas + totalCobradoAlquileres + totalIngresosFinancieros;
-  // Egresos totales = Tratamientos específicos + Insumos en almacén no aplicados (general) + Específicos + Generales + Jornales
-  const totalGastos = totalTratamientos + insumosAlmacenGeneral + totalEspecificos + totalGenerales + totalJornales;
-  const resultadoNeto = totalIngresos - totalGastos;
-
-  const totalHa = variedades.reduce((acc, v) => acc + (Number(v.hectareas) || 0), 0) || 1.0;
+  // Áreas del campo
+  const totalHaCultivadas = variedades.reduce((acc, v) => acc + (Number(v.hectareas) || 0), 0);
   const totalArboles = variedades.reduce((acc, v) => acc + (Number(v.num_arboles) || 0), 0);
+  const totalHaAlquiladas = alquileresCamp.reduce((acc, a) => acc + (Number(a.hectareas) || 0), 0);
 
-  // Actualizar KPIs en DOM
-  document.getElementById("kpiIngresos").textContent = formatMoney(totalIngresos);
-  document.getElementById("kpiKilosTotales").textContent = `${formatNum(totalKilos, 0)} Kg`;
-  document.getElementById("kpiGastos").textContent = formatMoney(totalGastos);
+  // ================= 1. BALANCE SOLO CULTIVOS (RENDIMIENTO AGRÍCOLA DIRECTO) =================
+  const ingresosCultivos = totalVentas;
+  // Costos directos agrícolas: tratamientos + mano de obra jornales + gastos específicos de variedades
+  const costosCultivos = totalTratamientos + totalEspecificos + totalJornales;
+  const netoCultivos = ingresosCultivos - costosCultivos;
+  const margenCultivos = ingresosCultivos > 0 ? (netoCultivos / ingresosCultivos) * 100 : 0;
+  const rendimientoHa = totalHaCultivadas > 0 ? (netoCultivos / totalHaCultivadas) : 0;
 
-  const netoEl = document.getElementById("kpiResultadoNeto");
-  netoEl.textContent = formatMoney(resultadoNeto);
-  if (resultadoNeto >= 0) {
-    netoEl.className = "text-lg sm:text-2xl font-black text-emerald-600 truncate";
-    document.getElementById("kpiMargenSub").textContent = "Margen operativo favorable";
-  } else {
-    netoEl.className = "text-lg sm:text-2xl font-black text-rose-600 truncate";
-    document.getElementById("kpiMargenSub").textContent = "Campaña en fase de inversión";
+  // ================= 2. BALANCE TOTAL DEL FUNDO (CONSOLIDADO INTEGRAL) =================
+  const ingresosFundo = totalVentas + totalCobradoAlquileres + totalIngresosFinancieros;
+  const gastosFundo = costosCultivos + insumosAlmacenGeneral + totalGenerales;
+  const netoFundo = ingresosFundo - gastosFundo;
+  const margenFundo = ingresosFundo > 0 ? (netoFundo / ingresosFundo) * 100 : 0;
+
+  // ================= RENDERIZAR BANNER COMPARATIVO DUAL =================
+  // A. Tarjeta Rendimiento Solo Cultivos
+  const badgeMargenCultivosEl = document.getElementById("badgeMargenCultivos");
+  if (badgeMargenCultivosEl) {
+    badgeMargenCultivosEl.textContent = `${margenCultivos.toFixed(1)}% Margen`;
+    badgeMargenCultivosEl.className = netoCultivos >= 0
+      ? "bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs"
+      : "bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs";
+  }
+  const dualIngresosCultivosEl = document.getElementById("dualIngresosCultivos");
+  if (dualIngresosCultivosEl) dualIngresosCultivosEl.textContent = formatMoney(ingresosCultivos);
+  const dualKilosCultivosEl = document.getElementById("dualKilosCultivos");
+  if (dualKilosCultivosEl) dualKilosCultivosEl.textContent = `${formatNum(totalKilos, 0)} Kg`;
+  const dualCostosCultivosEl = document.getElementById("dualCostosCultivos");
+  if (dualCostosCultivosEl) dualCostosCultivosEl.textContent = formatMoney(costosCultivos);
+  const dualNetoCultivosEl = document.getElementById("dualNetoCultivos");
+  if (dualNetoCultivosEl) {
+    dualNetoCultivosEl.textContent = formatMoney(netoCultivos);
+    dualNetoCultivosEl.className = netoCultivos >= 0
+      ? "text-xs sm:text-sm font-black text-emerald-700"
+      : "text-xs sm:text-sm font-black text-rose-600";
+  }
+  const dualRendimientoHaEl = document.getElementById("dualRendimientoHa");
+  if (dualRendimientoHaEl) {
+    dualRendimientoHaEl.textContent = `${formatMoney(rendimientoHa)} / Ha`;
+  }
+  const dualHaCultivadasEl = document.getElementById("dualHaCultivadas");
+  if (dualHaCultivadasEl) {
+    dualHaCultivadasEl.textContent = `${formatNum(totalHaCultivadas, 2)} Ha`;
   }
 
+  // B. Tarjeta Balance Total del Fundo
+  const dualIngresosFundoEl = document.getElementById("dualIngresosFundo");
+  if (dualIngresosFundoEl) dualIngresosFundoEl.textContent = formatMoney(ingresosFundo);
+  const dualDesgloseAlquilerEl = document.getElementById("dualDesgloseAlquiler");
+  if (dualDesgloseAlquilerEl) {
+    const extraCobros = totalCobradoAlquileres + totalIngresosFinancieros;
+    dualDesgloseAlquilerEl.textContent = extraCobros > 0 ? `+${formatMoney(extraCobros)} alq./otros` : "+S/. 0 alq.";
+  }
+  const dualGastosFundoEl = document.getElementById("dualGastosFundo");
+  if (dualGastosFundoEl) dualGastosFundoEl.textContent = formatMoney(gastosFundo);
+  const dualDesgloseGeneralesEl = document.getElementById("dualDesgloseGenerales");
+  if (dualDesgloseGeneralesEl) {
+    dualDesgloseGeneralesEl.textContent = `S/. ${formatMoney(totalGenerales)} generales`;
+  }
+  const dualNetoFundoEl = document.getElementById("dualNetoFundo");
+  if (dualNetoFundoEl) {
+    dualNetoFundoEl.textContent = formatMoney(netoFundo);
+    dualNetoFundoEl.className = netoFundo >= 0
+      ? "text-xs sm:text-sm font-black text-slate-900"
+      : "text-xs sm:text-sm font-black text-rose-600";
+  }
+  const dualSubNetoFundoEl = document.getElementById("dualSubNetoFundo");
+  if (dualSubNetoFundoEl) {
+    dualSubNetoFundoEl.textContent = `${margenFundo.toFixed(1)}% Margen fundo`;
+  }
+  const dualHaAlquiladasEl = document.getElementById("dualHaAlquiladas");
+  if (dualHaAlquiladasEl) {
+    dualHaAlquiladasEl.textContent = `${formatNum(totalHaAlquiladas, 2)} Ha`;
+  }
+
+  // ================= 3. TARJETAS KPIS PRINCIPALES (DINÁMICAS SEGÚN ENFOQUE) =================
+  const kpiIngresosLabel = document.getElementById("kpiIngresosLabel");
+  const kpiIngresos = document.getElementById("kpiIngresos");
+  const kpiIngresosSub = document.getElementById("kpiIngresosSub");
+  const kpiGastosLabel = document.getElementById("kpiGastosLabel");
+  const kpiGastos = document.getElementById("kpiGastos");
+  const kpiGastosSub = document.getElementById("kpiGastosSub");
+  const kpiResultadoLabel = document.getElementById("kpiResultadoLabel");
+  const netoEl = document.getElementById("kpiResultadoNeto");
+  const margenSubEl = document.getElementById("kpiMargenSub");
+
+  if (modoBalanceDashboard === "cultivos") {
+    if (kpiIngresosLabel) kpiIngresosLabel.textContent = "Ventas Cultivos";
+    if (kpiIngresos) kpiIngresos.textContent = formatMoney(ingresosCultivos);
+    if (kpiIngresosSub) kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${formatNum(totalKilos, 0)} Kg</span> fruta cosechada`;
+
+    if (kpiGastosLabel) kpiGastosLabel.textContent = "Costos Directos Campo";
+    if (kpiGastos) kpiGastos.textContent = formatMoney(costosCultivos);
+    if (kpiGastosSub) kpiGastosSub.textContent = "Mano de obra + insumos + específicos";
+
+    if (kpiResultadoLabel) kpiResultadoLabel.textContent = "Rendimiento Cultivos";
+    if (netoEl) {
+      netoEl.textContent = formatMoney(netoCultivos);
+      netoEl.className = netoCultivos >= 0 ? "text-lg sm:text-2xl font-black text-emerald-600 truncate" : "text-lg sm:text-2xl font-black text-rose-600 truncate";
+    }
+    if (margenSubEl) {
+      margenSubEl.textContent = netoCultivos >= 0
+        ? `Rendimiento: ${formatMoney(rendimientoHa)}/Ha`
+        : "Rendimiento negativo en cosechas";
+    }
+  } else {
+    // Modo "fundo" (Integral / Consolidado)
+    if (kpiIngresosLabel) kpiIngresosLabel.textContent = "Ingresos Fundo";
+    if (kpiIngresos) kpiIngresos.textContent = formatMoney(ingresosFundo);
+    if (kpiIngresosSub) {
+      const extraTxt = (totalCobradoAlquileres + totalIngresosFinancieros) > 0 ? ` + arriendos` : "";
+      kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${formatNum(totalKilos, 0)} Kg</span> fruta${extraTxt}`;
+    }
+
+    if (kpiGastosLabel) kpiGastosLabel.textContent = "Egresos Fundo";
+    if (kpiGastos) kpiGastos.textContent = formatMoney(gastosFundo);
+    if (kpiGastosSub) kpiGastosSub.textContent = "Campo + Almacén + Gastos Generales";
+
+    if (kpiResultadoLabel) kpiResultadoLabel.textContent = "Resultado Fundo";
+    if (netoEl) {
+      netoEl.textContent = formatMoney(netoFundo);
+      netoEl.className = netoFundo >= 0 ? "text-lg sm:text-2xl font-black text-emerald-600 truncate" : "text-lg sm:text-2xl font-black text-rose-600 truncate";
+    }
+    if (margenSubEl) {
+      margenSubEl.textContent = netoFundo >= 0 ? "Margen operativo favorable" : "Campaña en fase de inversión";
+    }
+  }
+
+  // KPIs complementarios
   document.getElementById("kpiJornalesMonto").textContent = formatMoney(totalJornales);
   document.getElementById("kpiTotalHoras").textContent = (totalHoras % 1 === 0) ? formatNum(totalHoras, 0) : formatNum(totalHoras, 1);
 
   // Actualizar Valor Stock
   recalcularStockYValorizacion();
 
-  // Hectáreas alquiladas a personas particulares (contratos vigentes de parcelas alquiladas)
-  const todosAlquileres = globalData.alquileresParcelas || [];
-  let alquileresRelevantes = todosAlquileres;
-  if (campanaActiva !== "todas") {
-    const anioActivo = parseInt(campanaActiva);
-    alquileresRelevantes = todosAlquileres.filter(a => {
-      const f = a.fecha || a.fecha_inicio || "";
-      const anio = parseInt(f.substring(0, 4));
-      if (anio === anioActivo) return true;
-      if (anio <= anioActivo) {
-        const pagos = (globalData.alquileresPagos || []).filter(p => p.alquiler_id == a.id);
-        const cobrado = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
-        return ((Number(a.monto_total) || 0) - cobrado) > 0;
-      }
-      return false;
-    });
-    if (alquileresRelevantes.length === 0 && todosAlquileres.length > 0) {
-      alquileresRelevantes = todosAlquileres;
-    }
-  }
-  const totalHaAlquiladas = alquileresRelevantes.reduce((acc, a) => acc + (Number(a.hectareas) || 0), 0);
+  // Actualizar Hectáreas de Alquiler en Barra Lateral (ESTRICTO A LA CAMPAÑA ACTIVA)
   let haTexto = "0 hectáreas (Sin alquilar)";
   if (totalHaAlquiladas > 0) {
     haTexto = (totalHaAlquiladas % 1 === 0)
@@ -1900,6 +2051,7 @@ function calcularYRenderizarDashboard() {
   }
   const elSbHa = document.getElementById("sbTotalHectareas");
   if (elSbHa) elSbHa.textContent = haTexto;
+
   const sbArb = document.getElementById("sbTotalArboles");
   if (sbArb) {
     sbArb.textContent = totalArboles > 0 ? `${formatNum(totalArboles, 0)} plantas` : `0 plantas (Sin registrar)`;
@@ -1915,6 +2067,7 @@ function calcularYRenderizarDashboard() {
   }
 
   // Calcular tabla P&L por Variedad
+  const totalHa = totalHaCultivadas > 0 ? totalHaCultivadas : 1.0;
   const resumenVariedades = variedades.map(v => {
     const vid = v.id;
     const arboles = Number(v.num_arboles) || 0;

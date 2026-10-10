@@ -228,19 +228,126 @@
 
       <!-- ================= VISTA 1: DASHBOARD ================= -->
       <section id="view-dashboard" class="space-y-5 sm:space-y-6">
+        <!-- Selector y Comparador Dual de Balances -->
+        <div class="space-y-3">
+          <!-- Barra de Selección de Modo -->
+          <div class="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-base sm:text-lg">⚖️</span>
+                <h3 class="font-bold text-slate-900 text-xs sm:text-sm">Enfoque de Balance Financiero:</h3>
+                <span id="badgeModoBalance" class="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">Todo el Fundo</span>
+              </div>
+              <p id="descModoBalance" class="text-[11px] text-slate-500 mt-0.5">
+                Balance integral: incluye ventas de cosechas, arriendos de parcelas a terceros y gastos generales.
+              </p>
+            </div>
+            
+            <div class="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0 self-start sm:self-auto">
+              <button type="button" id="btnBalanceFundo" onclick="cambiarModoBalance('fundo')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs bg-slate-900 text-white flex items-center gap-1.5">
+                <span>🏡 Todo el Fundo</span>
+              </button>
+              <button type="button" id="btnBalanceCultivos" onclick="cambiarModoBalance('cultivos')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center gap-1.5">
+                <span>🥑 Solo Cultivos</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Tarjetas Comparativas Duales (Ambos balances visibles a la vez) -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+            <!-- 1. Balance Solo Cultivos -->
+            <div class="bg-gradient-to-br from-emerald-50/70 to-emerald-100/30 border border-emerald-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between pb-2 border-b border-emerald-200/60">
+                  <div class="flex items-center gap-2">
+                    <span class="text-lg">🥑</span>
+                    <div>
+                      <h4 class="font-extrabold text-emerald-950 text-xs sm:text-sm">Rendimiento Solo Cultivos</h4>
+                      <p class="text-[10px] text-emerald-700">Producción pura en campo (sin alquileres)</p>
+                    </div>
+                  </div>
+                  <span id="badgeMargenCultivos" class="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs">0% Margen</span>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 my-3 text-center">
+                  <div class="bg-white/80 backdrop-blur-xs rounded-xl p-2 border border-emerald-100">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 block">Ventas Fruta</span>
+                    <span id="dualIngresosCultivos" class="text-xs sm:text-sm font-black text-slate-900">S/. 0.00</span>
+                    <span id="dualKilosCultivos" class="text-[9px] text-emerald-600 font-semibold block">0 Kg</span>
+                  </div>
+                  <div class="bg-white/80 backdrop-blur-xs rounded-xl p-2 border border-emerald-100">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 block">Costos Campo</span>
+                    <span id="dualCostosCultivos" class="text-xs sm:text-sm font-black text-rose-600">S/. 0.00</span>
+                    <span class="text-[9px] text-slate-400 font-medium block">Mano de obra + insumos</span>
+                  </div>
+                  <div class="bg-white/90 backdrop-blur-xs rounded-xl p-2 border border-emerald-200 shadow-2xs">
+                    <span class="text-[10px] uppercase font-bold text-emerald-700 block">Rendimiento Neto</span>
+                    <span id="dualNetoCultivos" class="text-xs sm:text-sm font-black text-emerald-700">S/. 0.00</span>
+                    <span id="dualRendimientoHa" class="text-[9px] text-slate-500 font-semibold block">S/. 0 / Ha</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="text-[10px] text-emerald-800/80 flex items-center justify-between pt-1">
+                <span>Área cultivada activa: <strong id="dualHaCultivadas">0.00 Ha</strong></span>
+                <span class="italic font-medium">Solo rendimiento de fruta</span>
+              </div>
+            </div>
+
+            <!-- 2. Balance Total del Fundo -->
+            <div class="bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-2xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span class="text-lg">🏡</span>
+                    <div>
+                      <h4 class="font-extrabold text-slate-900 text-xs sm:text-sm">Balance Total del Fundo</h4>
+                      <p class="text-[10px] text-slate-500">Integral: Cultivos + Alquileres de Parcelas + Gastos</p>
+                    </div>
+                  </div>
+                  <span class="bg-slate-900 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs">Fundo Total</span>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 my-3 text-center">
+                  <div class="bg-white/80 backdrop-blur-xs rounded-xl p-2 border border-slate-100">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 block">Ingresos Totales</span>
+                    <span id="dualIngresosFundo" class="text-xs sm:text-sm font-black text-slate-900">S/. 0.00</span>
+                    <span id="dualDesgloseAlquiler" class="text-[9px] text-blue-600 font-semibold block">+S/. 0 alq.</span>
+                  </div>
+                  <div class="bg-white/80 backdrop-blur-xs rounded-xl p-2 border border-slate-100">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 block">Egresos Totales</span>
+                    <span id="dualGastosFundo" class="text-xs sm:text-sm font-black text-rose-600">S/. 0.00</span>
+                    <span id="dualDesgloseGenerales" class="text-[9px] text-slate-400 font-medium block">Campo + Generales</span>
+                  </div>
+                  <div class="bg-white/90 backdrop-blur-xs rounded-xl p-2 border border-blue-200 shadow-2xs">
+                    <span class="text-[10px] uppercase font-bold text-blue-800 block">Resultado Fundo</span>
+                    <span id="dualNetoFundo" class="text-xs sm:text-sm font-black text-slate-900">S/. 0.00</span>
+                    <span id="dualSubNetoFundo" class="text-[9px] text-slate-500 font-semibold block">Balance consolidado</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="text-[10px] text-slate-500 flex items-center justify-between pt-1">
+                <span>Alquiler a terceros: <strong id="dualHaAlquiladas">0.00 Ha</strong></span>
+                <span class="font-medium text-blue-700">Incluye arriendos cobrados</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Tarjetas KPIs Principales -->
         <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
           <!-- Ingresos -->
           <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
             <div class="flex items-center justify-between">
-              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
+              <p id="kpiIngresosLabel" class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
               <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                 💰
               </div>
             </div>
             <div class="mt-2">
               <h3 id="kpiIngresos" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
-              <p class="text-[11px] text-emerald-600 mt-0.5 font-medium truncate">
+              <p id="kpiIngresosSub" class="text-[11px] text-emerald-600 mt-0.5 font-medium truncate">
                 <span id="kpiKilosTotales">0 Kg</span> vendidos
               </p>
             </div>
@@ -249,14 +356,14 @@
           <!-- Gastos Totales -->
           <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
             <div class="flex items-center justify-between">
-              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Egresos</p>
+              <p id="kpiGastosLabel" class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Egresos</p>
               <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
                 📉
               </div>
             </div>
             <div class="mt-2">
               <h3 id="kpiGastos" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
-              <p class="text-[11px] text-rose-500 mt-0.5 font-medium truncate">
+              <p id="kpiGastosSub" class="text-[11px] text-rose-500 mt-0.5 font-medium truncate">
                 Costos y compras
               </p>
             </div>
@@ -265,7 +372,7 @@
           <!-- Resultado Neto -->
           <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
             <div class="flex items-center justify-between">
-              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Resultado</p>
+              <p id="kpiResultadoLabel" class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Resultado</p>
               <div id="kpiResultadoIconContainer" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                 ⚖️
               </div>
@@ -1941,6 +2048,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261009_02"></script>
+  <script src="app.js?v=20261009_03"></script>
 </body>
 </html>
