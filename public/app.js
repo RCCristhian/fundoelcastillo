@@ -182,11 +182,16 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
           setLocalTable(table, data);
           return { success: true, data };
         } else {
+          // Si Supabase devuelve 0 filas pero este dispositivo tiene datos locales no sincronizados:
           const localData = getLocalTable(table);
           if (localData.length > 0) {
+            sincronizarTablaPendiente(table, localData);
             return { success: true, data: localData };
           }
+          return { success: true, data: [] };
         }
+      } else if (error) {
+        console.warn(`Supabase error en ${table}:`, error.message);
       }
     } catch (e) {
       console.warn(`Error en Supabase leyendo ${table}, usando fallback:`, e);
@@ -224,6 +229,115 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
   return { success: true, data: localData };
 }
 
+function limpiarPayloadParaSupabase(table, payload) {
+  const p = { ...payload };
+  delete p.id;
+  if (table === "jornales") {
+    delete p.trabajador_nombre;
+    delete p.variedad_nombre;
+  }
+  if (table === "ingresos_financieros") {
+    delete p.categoria;
+  }
+  if (table === "alquileres_parcelas") {
+    delete p.fecha;
+  }
+  return p;
+}
+
+async function sincronizarTablaPendiente(table, localData) {
+  if (!supabaseClient || !Array.isArray(localData) || localData.length === 0) return;
+  try {
+    const { data: remoteData, error: qErr } = await supabaseClient.from(table).select("id");
+    if (qErr) return;
+
+    const remoteIds = new Set((remoteData || []).map(r => r.id));
+    for (const record of localData) {
+      if (!remoteIds.has(record.id)) {
+        const payload = limpiarPayloadParaSupabase(table, record);
+        const { data, error } = await supabaseClient.from(table).insert([payload]).select();
+        if (!error && data && data[0]?.id) {
+          record.id = data[0].id;
+        }
+      }
+    }
+    setLocalTable(table, localData);
+  } catch (e) {
+    console.warn(`Error auto-sincronizando ${table}:`, e);
+  }
+}
+
+async function forzarSincronizacionNube() {
+  if (!supabaseClient) {
+    initSupabaseClient();
+  }
+  if (!supabaseClient) {
+    mostrarToast("No hay conexión con Supabase", "⚠️");
+    return;
+  }
+
+  mostrarToast("Sincronizando con la nube...", "☁️");
+
+  const tablas = [
+    "campanas",
+    "variedades",
+    "productos",
+    "compras_productos",
+    "tratamientos",
+    "ventas",
+    "gastos_especificos",
+    "gastos_generales",
+    "ingresos_financieros",
+    "trabajadores",
+    "jornales",
+    "alquileres_parcelas",
+    "alquileres_pagos"
+  ];
+
+  let subidos = 0;
+  let tablasConFaltaEsquema = [];
+
+  for (const t of tablas) {
+    try {
+      const { data: remoteData, error } = await supabaseClient.from(t).select("id");
+      if (error) {
+        if (error.code === "PGRST205" || String(error.message).includes("Could not find the table")) {
+          tablasConFaltaEsquema.push(t);
+        }
+        continue;
+      }
+
+      const remoteIds = new Set((remoteData || []).map(r => r.id));
+      const localData = getLocalTable(t);
+      const pendientes = localData.filter(item => !remoteIds.has(item.id));
+
+      if (pendientes.length > 0) {
+        for (const item of pendientes) {
+          const payload = limpiarPayloadParaSupabase(t, item);
+          const { data, error: insErr } = await supabaseClient.from(t).insert([payload]).select();
+          if (!insErr && data && data[0]?.id) {
+            item.id = data[0].id;
+            subidos++;
+          }
+        }
+        setLocalTable(t, localData);
+      }
+    } catch (e) {
+      console.warn(`Error en sync de ${t}:`, e);
+    }
+  }
+
+  await cargarTodosLosDatos();
+
+  if (tablasConFaltaEsquema.length > 0) {
+    mostrarToast(`Nube activa. Nota: Faltan crear tablas (${tablasConFaltaEsquema.join(', ')}) en Supabase`, "⚠️");
+  } else if (subidos > 0) {
+    mostrarToast(`¡${subidos} registro(s) sincronizados a la nube!`, "☁️");
+  } else {
+    mostrarToast("Todos los datos están sincronizados en la nube", "✅");
+  }
+}
+
 async function dataInsert(table, record) {
   if (!record.id) {
     record.id = Date.now();
@@ -231,8 +345,7 @@ async function dataInsert(table, record) {
 
   if (supabaseClient) {
     try {
-      const { id, ...recordWithoutId } = record;
-      let insertPayload = { ...recordWithoutId };
+      const insertPayload = limpiarPayloadParaSupabase(table, record);
       let { data, error } = await supabaseClient.from(table).insert([insertPayload]).select();
       
       // Fallback si la tabla en Supabase aún no tiene la columna 'hectareas'
@@ -246,6 +359,8 @@ async function dataInsert(table, record) {
 
       if (!error && data && data[0]?.id) {
         record.id = data[0].id;
+      } else if (error) {
+        console.warn(`Supabase insert en ${table} no sincronizado:`, error.message);
       }
     } catch (e) {
       console.warn(`Supabase insert en ${table} no sincronizado (${e.message}), guardado localmente.`);
@@ -281,7 +396,7 @@ async function dataDelete(table, id) {
 async function dataUpdate(table, id, fields) {
   if (supabaseClient) {
     try {
-      let updatePayload = { ...fields };
+      const updatePayload = limpiarPayloadParaSupabase(table, fields);
       let { error } = await supabaseClient.from(table).update(updatePayload).eq("id", id);
       if (error && error.message && error.message.toLowerCase().includes("hectareas")) {
         const { hectareas, ...fallbackPayload } = updatePayload;
