@@ -1176,10 +1176,11 @@
   <dialog id="modalVenta" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-emerald-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Registrar Venta de Cosecha</h3>
+        <h3 id="modalVentaTitle" class="font-bold text-sm">Registrar Venta de Cosecha</h3>
         <button onclick="cerrarDialog('modalVenta')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formVenta" onsubmit="guardarVenta(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="ventaEditId" value="">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
@@ -1230,7 +1231,7 @@
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalVenta')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">Guardar Venta</button>
+          <button type="submit" id="btnGuardarVenta" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">Guardar Venta</button>
         </div>
       </form>
     </div>
@@ -1304,10 +1305,11 @@
   <dialog id="modalTratamiento" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-teal-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Aplicación de Insumo / Químico</h3>
+        <h3 id="modalTratamientoTitle" class="font-bold text-sm">Aplicación de Insumo / Químico</h3>
         <button onclick="cerrarDialog('modalTratamiento')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formTratamiento" onsubmit="guardarTratamiento(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="trataEditId" value="">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
@@ -1348,7 +1350,7 @@
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalTratamiento')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow">Guardar y Descontar</button>
+          <button type="submit" id="btnGuardarTratamiento" class="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow">Guardar y Descontar</button>
         </div>
       </form>
     </div>
@@ -1666,10 +1668,11 @@
   <dialog id="modalGastoEspecifico" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-rose-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Gasto Específico de Cultivo</h3>
+        <h3 id="modalGastoEspecificoTitle" class="font-bold text-sm">Gasto Específico de Cultivo</h3>
         <button onclick="cerrarDialog('modalGastoEspecifico')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formGastoEspecifico" onsubmit="guardarGastoEspecifico(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="geEditId" value="">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
@@ -1704,7 +1707,7 @@
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalGastoEspecifico')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg shadow">Guardar Gasto</button>
+          <button type="submit" id="btnGuardarGastoEspecifico" class="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg shadow">Guardar Gasto</button>
         </div>
       </form>
     </div>
@@ -1714,10 +1717,11 @@
   <dialog id="modalCompraInsumo" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-cyan-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Registrar Compra de Insumo</h3>
+        <h3 id="modalCompraInsumoTitle" class="font-bold text-sm">Registrar Compra de Insumo</h3>
         <button onclick="cerrarDialog('modalCompraInsumo')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formCompraInsumo" onsubmit="guardarCompraInsumo(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="compraEditId" value="">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
@@ -1763,7 +1767,7 @@
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalCompraInsumo')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-lg shadow">Guardar y Sumar Stock</button>
+          <button type="submit" id="btnGuardarCompraInsumo" class="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-lg shadow">Guardar y Sumar Stock</button>
         </div>
       </form>
     </div>
@@ -1773,10 +1777,11 @@
   <dialog id="modalNuevoProducto" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
     <div class="bg-white rounded-2xl overflow-hidden">
       <div class="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 class="font-bold text-sm">Nuevo Insumo al Catálogo</h3>
+        <h3 id="modalNuevoProductoTitle" class="font-bold text-sm">Nuevo Insumo al Catálogo</h3>
         <button onclick="cerrarDialog('modalNuevoProducto')" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
       <form id="formNuevoProducto" onsubmit="guardarNuevoProducto(event)" class="p-5 space-y-3.5 text-xs">
+        <input type="hidden" id="prodEditId" value="">
         <div>
           <label class="block font-semibold text-slate-700 mb-1">Nombre del Insumo *</label>
           <input type="text" id="prodNombre" required placeholder="Ej: NITROEXTRAC, UREA" class="w-full px-3 py-2 border rounded-lg uppercase">
@@ -1802,7 +1807,7 @@
         </div>
         <div class="pt-3 flex justify-end space-x-2 border-t">
           <button type="button" onclick="cerrarDialog('modalNuevoProducto')" class="px-4 py-2 border rounded-lg text-slate-600">Cancelar</button>
-          <button type="submit" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow">Guardar</button>
+          <button type="submit" id="btnGuardarProducto" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow">Guardar Insumo</button>
         </div>
       </form>
     </div>
@@ -2048,6 +2053,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261009_03"></script>
+  <script src="app.js?v=20261011_01"></script>
 </body>
 </html>

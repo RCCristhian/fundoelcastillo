@@ -52,6 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initFechasHoy();
   initSupabaseClient();
   cargarTodosLosDatos();
+  iniciarSincronizacionContinua();
 });
 
 function toggleMobileMenu(open) {
@@ -169,37 +170,112 @@ function setLocalTable(table, data) {
   } catch (e) {}
 }
 
-// ================= CAPA DE DATOS HÍBRIDA (SUPABASE / LOCAL REST / STORAGE) =================
+// ================= CAPA DE DATOS HÍBRIDA (SUPABASE / LOCAL STORAGE) =================
+const SUPABASE_TABLE_COLUMNS = {
+  campanas: ['nombre', 'anio', 'activa', 'notas'],
+  parcelas: ['nombre', 'hectareas', 'tipo_tenencia', 'propietario', 'costo_alquiler_mensual', 'notas'],
+  variedades: ['nombre', 'especie', 'num_arboles', 'anio_plantacion', 'hectareas', 'parcela_id', 'notas'],
+  productos: ['nombre', 'categoria', 'unidad', 'stock_anterior', 'stock_actual', 'precio_referencial', 'notas'],
+  compras_productos: ['fecha', 'producto_id', 'cantidad', 'precio_unitario', 'total', 'proveedor', 'nro_factura', 'nro_albaran', 'pagado', 'notas'],
+  tratamientos: ['fecha', 'variedad_id', 'producto_id', 'cantidad', 'precio_unitario', 'total', 'notas'],
+  ventas: ['fecha', 'variedad_id', 'kilos', 'precio_kilo', 'total', 'comprador', 'nro_boleta', 'nro_factura', 'cobrado', 'notas'],
+  gastos_especificos: ['fecha', 'concepto', 'total', 'empresa', 'nro_factura', 'variedad_id', 'notas'],
+  gastos_generales: ['fecha', 'concepto', 'total', 'empresa', 'nro_factura', 'categoria', 'notas'],
+  ingresos_financieros: ['fecha', 'categoria', 'concepto', 'total', 'pagador', 'nro_factura', 'notas'],
+  trabajadores: ['nombre', 'telefono', 'rol', 'costo_hora_defecto', 'activo'],
+  jornales: ['fecha', 'trabajador_id', 'variedad_id', 'horas', 'precio_hora', 'total', 'labor', 'notas'],
+  alquileres_parcelas: ['fecha_inicio', 'arrendatario', 'telefono', 'parcela_nombre', 'hectareas', 'monto_total', 'notas'],
+  alquileres_pagos: ['alquiler_id', 'fecha', 'monto', 'nro_cuota', 'metodo', 'nro_comprobante', 'notas']
+};
+
+function limpiarPayloadParaSupabase(table, payload) {
+  const allowed = SUPABASE_TABLE_COLUMNS[table];
+  if (allowed && Array.isArray(allowed)) {
+    const clean = {};
+    for (const key of allowed) {
+      if (payload[key] !== undefined && payload[key] !== null) {
+        clean[key] = payload[key];
+      }
+    }
+    // Caso especial alquileres_parcelas si fecha_inicio vino guardada como fecha
+    if (table === "alquileres_parcelas" && !clean.fecha_inicio && payload.fecha) {
+      clean.fecha_inicio = payload.fecha;
+    }
+    return clean;
+  }
+  const p = { ...payload };
+  delete p.id;
+  return p;
+}
+
+// Fusión inteligente no destructiva: Preserva registros nuevos locales y conserva la versión más reciente
+function fusionarDatosRemotoYLocal(table, remoteData, localData) {
+  const remoteMap = new Map();
+  (remoteData || []).forEach(r => remoteMap.set(String(r.id), r));
+
+  const localMap = new Map();
+  (localData || []).forEach(l => localMap.set(String(l.id), l));
+
+  const combined = [];
+  const processed = new Set();
+
+  // 1. Procesar registros que existen localmente
+  for (const [id, locItem] of localMap.entries()) {
+    processed.add(id);
+    if (!remoteMap.has(id)) {
+      // Registro local creado recientemente que aún no ha subido a la nube: ¡NO BORRAR!
+      combined.push(locItem);
+    } else {
+      const remItem = remoteMap.get(id);
+      const locTime = new Date(locItem.updated_at || locItem.created_at || 0).getTime();
+      const remTime = new Date(remItem.updated_at || remItem.created_at || 0).getTime();
+
+      // Mantener la versión más reciente, conservando campos auxiliares
+      if (locTime > remTime) {
+        combined.push({ ...remItem, ...locItem });
+      } else {
+        combined.push({ ...locItem, ...remItem });
+      }
+    }
+  }
+
+  // 2. Agregar registros remotos que no estaban en local
+  for (const [id, remItem] of remoteMap.entries()) {
+    if (!processed.has(id)) {
+      combined.push(remItem);
+    }
+  }
+
+  return combined;
+}
+
 async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = true) {
-  // 1. Si Supabase está activo
+  let localData = getLocalTable(table);
+
   if (supabaseClient) {
     try {
       let query = supabaseClient.from(table).select(selectQuery);
       if (orderCol) query = query.order(orderCol, { ascending });
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
-        if (data.length > 0) {
-          setLocalTable(table, data);
-          return { success: true, data };
-        } else {
-          // Si Supabase devuelve 0 filas pero este dispositivo tiene datos locales no sincronizados:
-          const localData = getLocalTable(table);
-          if (localData.length > 0) {
-            sincronizarTablaPendiente(table, localData);
-            return { success: true, data: localData };
-          }
-          return { success: true, data: [] };
-        }
+      const { data: remoteData, error } = await query;
+
+      if (!error && Array.isArray(remoteData)) {
+        // Fusión inteligente para nunca destruir cambios locales
+        const mergedData = fusionarDatosRemotoYLocal(table, remoteData, localData);
+        setLocalTable(table, mergedData);
+
+        // Auto-sincronizar pendientes en segundo plano
+        sincronizarTablaPendiente(table, mergedData);
+
+        localData = mergedData;
       } else if (error) {
         console.warn(`Supabase error en ${table}:`, error.message);
       }
     } catch (e) {
-      console.warn(`Error en Supabase leyendo ${table}, usando fallback:`, e);
+      console.warn(`Error en Supabase leyendo ${table}, usando local:`, e);
     }
   }
 
-  // 2. Fallback a LocalStorage y catálogos iniciales
-  let localData = getLocalTable(table);
+  // Fallbacks de inicialización para productos y trabajadores si la base está completamente limpia
   if (table === "productos" && localData.length === 0) {
     localData = DEFAULT_PRODUCTOS_LIST.map((nom, idx) => ({
       id: idx + 1,
@@ -208,11 +284,12 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
       unidad: "Kg/L",
       stock_anterior: 0,
       stock_actual: 0,
-      precio_referencial: 0
+      precio_referencial: 0,
+      updated_at: new Date().toISOString()
     }));
     setLocalTable("productos", localData);
   } else if (table === "trabajadores" && localData.length === 0) {
-    localData = [...DEFAULT_TRABAJADORES];
+    localData = DEFAULT_TRABAJADORES.map(t => ({ ...t, updated_at: new Date().toISOString() }));
     setLocalTable("trabajadores", localData);
   }
 
@@ -229,31 +306,15 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
   return { success: true, data: localData };
 }
 
-function limpiarPayloadParaSupabase(table, payload) {
-  const p = { ...payload };
-  delete p.id;
-  if (table === "jornales") {
-    delete p.trabajador_nombre;
-    delete p.variedad_nombre;
-  }
-  if (table === "ingresos_financieros") {
-    delete p.categoria;
-  }
-  if (table === "alquileres_parcelas") {
-    delete p.fecha;
-  }
-  return p;
-}
-
 async function sincronizarTablaPendiente(table, localData) {
   if (!supabaseClient || !Array.isArray(localData) || localData.length === 0) return;
   try {
     const { data: remoteData, error: qErr } = await supabaseClient.from(table).select("id");
     if (qErr) return;
 
-    const remoteIds = new Set((remoteData || []).map(r => r.id));
+    const remoteIds = new Set((remoteData || []).map(r => String(r.id)));
     for (const record of localData) {
-      if (!remoteIds.has(record.id)) {
+      if (!remoteIds.has(String(record.id))) {
         const payload = limpiarPayloadParaSupabase(table, record);
         const { data, error } = await supabaseClient.from(table).insert([payload]).select();
         if (!error && data && data[0]?.id) {
@@ -265,6 +326,89 @@ async function sincronizarTablaPendiente(table, localData) {
   } catch (e) {
     console.warn(`Error auto-sincronizando ${table}:`, e);
   }
+}
+
+let syncHeartbeatRunning = false;
+async function ejecutarSincronizacionContinua() {
+  if (syncHeartbeatRunning || !supabaseClient || !navigator.onLine) return;
+  syncHeartbeatRunning = true;
+  try {
+    const tablas = [
+      "campanas", "parcelas", "variedades", "productos", "compras_productos",
+      "tratamientos", "ventas", "gastos_especificos", "gastos_generales",
+      "ingresos_financieros", "trabajadores", "jornales",
+      "alquileres_parcelas", "alquileres_pagos"
+    ];
+
+    let huboCambios = false;
+    for (const t of tablas) {
+      const { data: remoteData, error } = await supabaseClient.from(t).select("*");
+      if (error || !Array.isArray(remoteData)) continue;
+
+      const localData = getLocalTable(t);
+      const merged = fusionarDatosRemotoYLocal(t, remoteData, localData);
+
+      if (JSON.stringify(merged) !== JSON.stringify(localData)) {
+        setLocalTable(t, merged);
+        huboCambios = true;
+      }
+
+      // Si hay elementos locales que no están en Supabase, subirlos
+      const remoteIds = new Set(remoteData.map(r => String(r.id)));
+      for (const locItem of localData) {
+        if (!remoteIds.has(String(locItem.id))) {
+          const payload = limpiarPayloadParaSupabase(t, locItem);
+          const { data: insData, error: insErr } = await supabaseClient.from(t).insert([payload]).select();
+          if (!insErr && insData && insData[0]?.id) {
+            locItem.id = insData[0].id;
+            huboCambios = true;
+          }
+        }
+      }
+      setLocalTable(t, localData);
+    }
+
+    if (huboCambios) {
+      await cargarTodosLosDatos();
+    }
+  } catch (e) {
+    // Manejar desconexión temporal silenciosamente
+  } finally {
+    syncHeartbeatRunning = false;
+  }
+}
+
+function suscribirSupabaseRealtime() {
+  if (!supabaseClient || typeof supabaseClient.channel !== 'function') return;
+  try {
+    supabaseClient.channel('fundo-sync-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        ejecutarSincronizacionContinua();
+      })
+      .subscribe();
+  } catch (err) {
+    console.warn("Realtime no disponible:", err);
+  }
+}
+
+function iniciarSincronizacionContinua() {
+  // Sincronización continua en segundo plano cada 12 segundos
+  setInterval(ejecutarSincronizacionContinua, 12000);
+
+  // Al volver conexión
+  window.addEventListener("online", () => {
+    mostrarToast("Conexión activa. Sincronizando...", "🌐");
+    forzarSincronizacionNube();
+  });
+
+  // Al volver a enfocar la app (en móvil o PC)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      ejecutarSincronizacionContinua();
+    }
+  });
+
+  suscribirSupabaseRealtime();
 }
 
 async function forzarSincronizacionNube() {
@@ -307,9 +451,9 @@ async function forzarSincronizacionNube() {
         continue;
       }
 
-      const remoteIds = new Set((remoteData || []).map(r => r.id));
+      const remoteIds = new Set((remoteData || []).map(r => String(r.id)));
       const localData = getLocalTable(t);
-      const pendientes = localData.filter(item => !remoteIds.has(item.id));
+      const pendientes = localData.filter(item => !remoteIds.has(String(item.id)));
 
       if (pendientes.length > 0) {
         for (const item of pendientes) {
@@ -342,12 +486,14 @@ async function dataInsert(table, record) {
   if (!record.id) {
     record.id = Date.now();
   }
+  record.updated_at = new Date().toISOString();
 
+  let sincronizadoRemoto = false;
   if (supabaseClient) {
     try {
       const insertPayload = limpiarPayloadParaSupabase(table, record);
       let { data, error } = await supabaseClient.from(table).insert([insertPayload]).select();
-      
+
       // Fallback si la tabla en Supabase aún no tiene la columna 'hectareas'
       if (error && error.message && error.message.toLowerCase().includes("hectareas")) {
         const { hectareas, ...fallbackPayload } = insertPayload;
@@ -359,18 +505,24 @@ async function dataInsert(table, record) {
 
       if (!error && data && data[0]?.id) {
         record.id = data[0].id;
+        sincronizadoRemoto = true;
       } else if (error) {
-        console.warn(`Supabase insert en ${table} no sincronizado:`, error.message);
+        console.warn(`Supabase insert en ${table} pendiente de sync:`, error.message);
       }
     } catch (e) {
-      console.warn(`Supabase insert en ${table} no sincronizado (${e.message}), guardado localmente.`);
+      console.warn(`Supabase insert en ${table} diferido (${e.message}), guardado localmente.`);
     }
   }
 
   const localList = getLocalTable(table);
-  localList.push(record);
+  const existIdx = localList.findIndex(item => item.id == record.id);
+  if (existIdx >= 0) {
+    localList[existIdx] = { ...localList[existIdx], ...record };
+  } else {
+    localList.push(record);
+  }
   setLocalTable(table, localList);
-  return { success: true, id: record.id };
+  return { success: true, id: record.id, sincronizadoRemoto };
 }
 
 async function dataDelete(table, id) {
@@ -394,6 +546,8 @@ async function dataDelete(table, id) {
 }
 
 async function dataUpdate(table, id, fields) {
+  fields.updated_at = new Date().toISOString();
+
   if (supabaseClient) {
     try {
       const updatePayload = limpiarPayloadParaSupabase(table, fields);
@@ -413,7 +567,7 @@ async function dataUpdate(table, id, fields) {
   const localList = getLocalTable(table);
   const idx = localList.findIndex(item => item.id == id);
   if (idx !== -1) {
-    localList[idx] = { ...localList[idx], ...fields };
+    localList[idx] = { ...localList[idx], ...fields, updated_at: new Date().toISOString() };
     setLocalTable(table, localList);
   }
   return true;
@@ -862,7 +1016,8 @@ function renderTablaInsumos(productos) {
       <td class="py-2 px-3 text-right ${stockClass}">${formatNum(p.stock_actual || 0, 1)}</td>
       <td class="py-2 px-3 text-right text-slate-600">${formatMoney(p.precio_referencial || 0)}</td>
       <td class="py-2 px-3 text-right font-semibold text-slate-900">${formatMoney(valor)}</td>
-      <td class="py-2 px-2 text-center">
+      <td class="py-2 px-2 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarProducto(${p.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar insumo">✏️</button>
         <button onclick="dataDelete('productos', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
     `;
@@ -938,7 +1093,8 @@ function renderTablaVentas(ventas) {
       <td class="py-2.5 px-3 text-slate-700">${v.comprador || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${v.nro_boleta || v.nro_factura || '-'}</td>
       <td class="py-2.5 px-3 text-center">${estadoBadge}</td>
-      <td class="py-2.5 px-3 text-center">
+      <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarVenta(${v.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar venta">✏️</button>
         <button onclick="dataDelete('ventas', ${v.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
     `;
@@ -985,8 +1141,9 @@ function renderTablaGastosEspecificos(lista) {
       <td class="py-2.5 px-3 text-right font-black text-rose-700">${formatMoney(ge.total)}</td>
       <td class="py-2.5 px-3 text-slate-600">${ge.empresa || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${ge.nro_factura || '-'}</td>
-      <td class="py-2.5 px-3 text-center">
-        <button onclick="dataDelete('gastos_especificos', ${ge.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarGastoEspecifico(${ge.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar gasto">✏️</button>
+        <button onclick="dataDelete('gastos_especificos', ${ge.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar gasto">🗑️</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1558,7 +1715,8 @@ function abrirModalHistorialPagos(contratoId) {
           <td class="py-2 px-3 text-right font-black text-emerald-600">${formatMoney(p.monto)}</td>
           <td class="py-2 px-3 text-slate-600">${p.metodo || 'Efectivo'}</td>
           <td class="py-2 px-3 text-slate-500 font-mono text-[11px]">${p.nro_comprobante || '-'}</td>
-          <td class="py-2 px-3 text-center">
+          <td class="py-2 px-3 text-center whitespace-nowrap space-x-1">
+            <button onclick="abrirModalEditarPagoAlquiler(${p.id}, ${contratoId})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar abono">✏️</button>
             <button onclick="eliminarPagoAlquiler(${p.id}, ${contratoId})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar abono">🗑️</button>
           </td>
         `;
@@ -1778,8 +1936,9 @@ function renderTablaTratamientos(lista) {
       <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(t.precio_unitario)}</td>
       <td class="py-2.5 px-3 text-right font-black text-teal-700">${formatMoney(t.total)}</td>
       <td class="py-2.5 px-3 text-slate-500">${t.notas || '-'}</td>
-      <td class="py-2.5 px-3 text-center">
-        <button onclick="dataDelete('tratamientos', ${t.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarTratamiento(${t.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar aplicación">✏️</button>
+        <button onclick="dataDelete('tratamientos', ${t.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1813,8 +1972,9 @@ function renderTablaCompras(lista) {
       <td class="py-2.5 px-3 text-right font-black text-cyan-700">${formatMoney(c.total)}</td>
       <td class="py-2.5 px-3 text-slate-700">${c.proveedor || '-'}</td>
       <td class="py-2.5 px-3 text-center">${c.pagado ? '<span class="badge-status badge-paid">Pagado</span>' : '<span class="badge-status badge-pending">Pendiente</span>'}</td>
-      <td class="py-2.5 px-2 text-center">
-        <button onclick="dataDelete('compras_productos', ${c.id})" class="text-rose-600 hover:text-rose-800 p-1">🗑️</button>
+      <td class="py-2.5 px-2 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalEditarCompraInsumo(${c.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar compra">✏️</button>
+        <button onclick="dataDelete('compras_productos', ${c.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -2844,31 +3004,86 @@ function actualizarPrecioInsumo(productoId) {
   }
 }
 
-// Guardar
+// ================= FUNCIONES DE APERTURA Y EDICIÓN DE MODALES =================
+function abrirModalVenta() {
+  document.getElementById("formVenta")?.reset();
+  if (document.getElementById("ventaEditId")) document.getElementById("ventaEditId").value = "";
+  const title = document.getElementById("modalVentaTitle");
+  if (title) title.textContent = "Registrar Venta de Cosecha";
+  const btn = document.getElementById("btnGuardarVenta");
+  if (btn) btn.textContent = "Guardar Venta";
+
+  const fechaEl = document.getElementById("ventaFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+  document.getElementById("modalVenta")?.showModal();
+}
+
+function abrirModalEditarVenta(id) {
+  const v = globalData.ventas.find(x => x.id == id);
+  if (!v) return;
+  document.getElementById("formVenta")?.reset();
+  if (document.getElementById("ventaEditId")) document.getElementById("ventaEditId").value = v.id;
+  document.getElementById("ventaFecha").value = v.fecha || "";
+  document.getElementById("ventaVariedadId").value = v.variedad_id || "";
+  document.getElementById("ventaKilos").value = v.kilos ?? "";
+  document.getElementById("ventaPrecio").value = v.precio_kilo ?? "";
+  document.getElementById("ventaComprador").value = v.comprador || "";
+  document.getElementById("ventaComprobante").value = v.nro_boleta || v.nro_factura || "";
+  document.getElementById("ventaCobrado").checked = !!v.cobrado;
+  document.getElementById("ventaNotas").value = v.notas || "";
+
+  const title = document.getElementById("modalVentaTitle");
+  if (title) title.textContent = "✏️ Editar Venta de Cosecha";
+  const btn = document.getElementById("btnGuardarVenta");
+  if (btn) btn.textContent = "Actualizar Venta";
+
+  calcularTotalVenta();
+  document.getElementById("modalVenta")?.showModal();
+}
+
 async function guardarVenta(e) {
   e.preventDefault();
-  const k = parseFloat(document.getElementById("ventaKilos").value);
-  const p = parseFloat(document.getElementById("ventaPrecio").value);
+  const editId = document.getElementById("ventaEditId")?.value;
+  const k = parseFloat(document.getElementById("ventaKilos").value) || 0;
+  const p = parseFloat(document.getElementById("ventaPrecio").value) || 0;
+  const varId = parseInt(document.getElementById("ventaVariedadId").value);
+  const variedad = globalData.variedades.find(item => item.id == varId);
+
   const data = {
     fecha: document.getElementById("ventaFecha").value,
-    variedad_id: parseInt(document.getElementById("ventaVariedadId").value),
+    variedad_id: varId,
+    variedad_nombre: variedad ? variedad.nombre : "",
     kilos: k,
     precio_kilo: p,
     total: Math.round(k * p * 100) / 100,
-    comprador: document.getElementById("ventaComprador").value,
-    nro_boleta: document.getElementById("ventaComprobante").value,
+    comprador: document.getElementById("ventaComprador").value.trim(),
+    nro_boleta: document.getElementById("ventaComprobante").value.trim(),
     cobrado: document.getElementById("ventaCobrado").checked,
-    notas: document.getElementById("ventaNotas").value
+    notas: document.getElementById("ventaNotas").value.trim()
   };
 
-  const res = await dataInsert("ventas", data);
-  if (res.success) {
-    cerrarDialog("modalVenta");
-    document.getElementById("formVenta").reset();
-    initFechasHoy();
+  if (editId) {
+    await dataUpdate("ventas", Number(editId), data);
+    mostrarToast("Venta actualizada exitosamente", "✅");
+  } else {
+    await dataInsert("ventas", data);
     mostrarToast("Venta registrada con éxito", "💰");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalVenta");
+  document.getElementById("formVenta").reset();
+  if (document.getElementById("ventaEditId")) document.getElementById("ventaEditId").value = "";
+  initFechasHoy();
+  actualizarDatos();
 }
 
 async function guardarJornal(e) {
@@ -2919,8 +3134,55 @@ async function guardarJornal(e) {
   }
 }
 
+function abrirModalTratamiento() {
+  document.getElementById("formTratamiento")?.reset();
+  if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = "";
+  const title = document.getElementById("modalTratamientoTitle");
+  if (title) title.textContent = "Aplicación de Insumo / Químico";
+  const btn = document.getElementById("btnGuardarTratamiento");
+  if (btn) btn.textContent = "Guardar y Descontar";
+
+  const fechaEl = document.getElementById("trataFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+
+  const pSel = document.getElementById("trataProductoId");
+  if (pSel && pSel.value) actualizarPrecioInsumo(pSel.value);
+  document.getElementById("modalTratamiento")?.showModal();
+}
+
+function abrirModalEditarTratamiento(id) {
+  const t = globalData.tratamientos.find(x => x.id == id);
+  if (!t) return;
+  document.getElementById("formTratamiento")?.reset();
+  if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = t.id;
+  document.getElementById("trataFecha").value = t.fecha || "";
+  document.getElementById("trataVariedadId").value = t.variedad_id || "";
+  document.getElementById("trataProductoId").value = t.producto_id || "";
+  document.getElementById("trataCantidad").value = t.cantidad ?? "";
+  document.getElementById("trataPrecioUnitario").value = t.precio_unitario ?? "";
+  document.getElementById("trataNotas").value = t.notas || "";
+
+  const title = document.getElementById("modalTratamientoTitle");
+  if (title) title.textContent = "✏️ Editar Tratamiento / Aplicación";
+  const btn = document.getElementById("btnGuardarTratamiento");
+  if (btn) btn.textContent = "Actualizar Aplicación";
+
+  calcularTotalTratamiento();
+  document.getElementById("modalTratamiento")?.showModal();
+}
+
 async function guardarTratamiento(e) {
   e.preventDefault();
+  const editId = document.getElementById("trataEditId")?.value;
   const cRaw = document.getElementById("trataCantidad").value || "0";
   const pRaw = document.getElementById("trataPrecioUnitario").value || "0";
   const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
@@ -2943,19 +3205,32 @@ async function guardarTratamiento(e) {
     notas: document.getElementById("trataNotas").value.trim()
   };
 
-  const res = await dataInsert("tratamientos", data);
-  if (res.success) {
+  if (editId) {
+    const oldT = globalData.tratamientos.find(x => x.id == editId);
+    if (prod) {
+      const oldCant = Number(oldT?.cantidad) || 0;
+      const delta = c - oldCant;
+      const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) - delta);
+      prod.stock_actual = nuevoStock;
+      await dataUpdate("productos", prod.id, { stock_actual: nuevoStock });
+    }
+    await dataUpdate("tratamientos", Number(editId), data);
+    mostrarToast("Tratamiento actualizado exitosamente", "✅");
+  } else {
+    await dataInsert("tratamientos", data);
     if (prod) {
       const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) - c);
       prod.stock_actual = nuevoStock;
       await dataUpdate("productos", prod.id, { stock_actual: nuevoStock });
     }
-    cerrarDialog("modalTratamiento");
-    document.getElementById("formTratamiento").reset();
-    initFechasHoy();
     mostrarToast("Aplicación registrada y stock descontado", "🧪");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalTratamiento");
+  document.getElementById("formTratamiento").reset();
+  if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = "";
+  initFechasHoy();
+  actualizarDatos();
 }
 
 async function guardarGastoGeneral(e) {
@@ -2987,33 +3262,128 @@ async function guardarGastoGeneral(e) {
   actualizarDatos();
 }
 
+function abrirModalGastoEspecifico() {
+  document.getElementById("formGastoEspecifico")?.reset();
+  if (document.getElementById("geEditId")) document.getElementById("geEditId").value = "";
+  const title = document.getElementById("modalGastoEspecificoTitle");
+  if (title) title.textContent = "Gasto Específico de Cultivo";
+  const btn = document.getElementById("btnGuardarGastoEspecifico");
+  if (btn) btn.textContent = "Guardar Gasto";
+
+  const fechaEl = document.getElementById("geFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+  document.getElementById("modalGastoEspecifico")?.showModal();
+}
+
+function abrirModalEditarGastoEspecifico(id) {
+  const ge = globalData.gastosEspecificos.find(x => x.id == id);
+  if (!ge) return;
+  document.getElementById("formGastoEspecifico")?.reset();
+  if (document.getElementById("geEditId")) document.getElementById("geEditId").value = ge.id;
+  document.getElementById("geFecha").value = ge.fecha || "";
+  document.getElementById("geVariedadId").value = ge.variedad_id || "";
+  document.getElementById("geConcepto").value = ge.concepto || "";
+  document.getElementById("geTotal").value = ge.total ?? "";
+  document.getElementById("geEmpresa").value = ge.empresa || "";
+  document.getElementById("geFactura").value = ge.nro_factura || "";
+
+  const title = document.getElementById("modalGastoEspecificoTitle");
+  if (title) title.textContent = "✏️ Editar Gasto Específico";
+  const btn = document.getElementById("btnGuardarGastoEspecifico");
+  if (btn) btn.textContent = "Actualizar Gasto";
+
+  document.getElementById("modalGastoEspecifico")?.showModal();
+}
+
 async function guardarGastoEspecifico(e) {
   e.preventDefault();
+  const editId = document.getElementById("geEditId")?.value;
   const totalRaw = document.getElementById("geTotal")?.value || "0";
   const total = parseFloat(String(totalRaw).replace(',', '.')) || 0;
   const varId = document.getElementById("geVariedadId")?.value;
+  const variedad = globalData.variedades.find(v => v.id == varId);
 
   const data = {
     fecha: document.getElementById("geFecha")?.value,
     variedad_id: varId ? parseInt(varId) : null,
+    variedad_nombre: variedad ? variedad.nombre : "",
     concepto: document.getElementById("geConcepto")?.value || "",
     total: total,
     empresa: document.getElementById("geEmpresa")?.value || "",
     nro_factura: document.getElementById("geFactura")?.value || ""
   };
 
-  const res = await dataInsert("gastos_especificos", data);
-  if (res.success) {
-    cerrarDialog("modalGastoEspecifico");
-    document.getElementById("formGastoEspecifico").reset();
-    initFechasHoy();
+  if (editId) {
+    await dataUpdate("gastos_especificos", Number(editId), data);
+    mostrarToast("Gasto específico actualizado", "✅");
+  } else {
+    await dataInsert("gastos_especificos", data);
     mostrarToast("Gasto específico guardado", "📉");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalGastoEspecifico");
+  document.getElementById("formGastoEspecifico").reset();
+  if (document.getElementById("geEditId")) document.getElementById("geEditId").value = "";
+  initFechasHoy();
+  actualizarDatos();
+}
+
+function abrirModalCompraInsumo() {
+  document.getElementById("formCompraInsumo")?.reset();
+  if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = "";
+  const title = document.getElementById("modalCompraInsumoTitle");
+  if (title) title.textContent = "Registrar Compra de Insumo";
+  const btn = document.getElementById("btnGuardarCompraInsumo");
+  if (btn) btn.textContent = "Guardar y Sumar Stock";
+
+  const fechaEl = document.getElementById("compraFecha");
+  if (fechaEl) {
+    if (campanaActiva && campanaActiva !== "todas") {
+      const hoy = new Date();
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+      const dia = String(hoy.getDate()).padStart(2, '0');
+      fechaEl.value = `${campanaActiva}-${mes}-${dia}`;
+    } else {
+      fechaEl.value = new Date().toISOString().split("T")[0];
+    }
+  }
+  document.getElementById("modalCompraInsumo")?.showModal();
+}
+
+function abrirModalEditarCompraInsumo(id) {
+  const c = globalData.compras.find(x => x.id == id);
+  if (!c) return;
+  document.getElementById("formCompraInsumo")?.reset();
+  if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = c.id;
+  document.getElementById("compraFecha").value = c.fecha || "";
+  document.getElementById("compraProductoId").value = c.producto_id || "";
+  document.getElementById("compraCantidad").value = c.cantidad ?? "";
+  document.getElementById("compraPrecioUnitario").value = c.precio_unitario ?? "";
+  document.getElementById("compraProveedor").value = c.proveedor || "";
+  document.getElementById("compraFactura").value = c.nro_factura || "";
+  document.getElementById("compraPagado").checked = !!c.pagado;
+
+  const title = document.getElementById("modalCompraInsumoTitle");
+  if (title) title.textContent = "✏️ Editar Compra de Insumo";
+  const btn = document.getElementById("btnGuardarCompraInsumo");
+  if (btn) btn.textContent = "Actualizar Compra";
+
+  calcularTotalCompra();
+  document.getElementById("modalCompraInsumo")?.showModal();
 }
 
 async function guardarCompraInsumo(e) {
   e.preventDefault();
+  const editId = document.getElementById("compraEditId")?.value;
   const cRaw = document.getElementById("compraCantidad").value || "0";
   const pRaw = document.getElementById("compraPrecioUnitario").value || "0";
   const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
@@ -3034,8 +3404,23 @@ async function guardarCompraInsumo(e) {
     pagado: document.getElementById("compraPagado").checked
   };
 
-  const res = await dataInsert("compras_productos", data);
-  if (res.success) {
+  if (editId) {
+    const oldC = globalData.compras.find(x => x.id == editId);
+    if (prod) {
+      const oldCant = Number(oldC?.cantidad) || 0;
+      const delta = c - oldCant;
+      const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) + delta);
+      prod.stock_actual = nuevoStock;
+      if (p > 0) prod.precio_referencial = p;
+      await dataUpdate("productos", prod.id, {
+        stock_actual: nuevoStock,
+        precio_referencial: prod.precio_referencial
+      });
+    }
+    await dataUpdate("compras_productos", Number(editId), data);
+    mostrarToast("Compra actualizada exitosamente", "✅");
+  } else {
+    await dataInsert("compras_productos", data);
     if (prod) {
       const nuevoStock = (Number(prod.stock_actual) || 0) + c;
       const nuevoPrecio = p > 0 ? p : (Number(prod.precio_referencial) || 0);
@@ -3046,16 +3431,46 @@ async function guardarCompraInsumo(e) {
         precio_referencial: nuevoPrecio
       });
     }
-    cerrarDialog("modalCompraInsumo");
-    document.getElementById("formCompraInsumo").reset();
-    initFechasHoy();
     mostrarToast("Compra registrada y stock aumentado", "📦");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalCompraInsumo");
+  document.getElementById("formCompraInsumo").reset();
+  if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = "";
+  initFechasHoy();
+  actualizarDatos();
+}
+
+function abrirModalNuevoProducto() {
+  document.getElementById("formNuevoProducto")?.reset();
+  if (document.getElementById("prodEditId")) document.getElementById("prodEditId").value = "";
+  const title = document.getElementById("modalNuevoProductoTitle");
+  if (title) title.textContent = "Nuevo Insumo al Catálogo";
+  const btn = document.getElementById("btnGuardarProducto");
+  if (btn) btn.textContent = "Guardar Insumo";
+  document.getElementById("modalNuevoProducto")?.showModal();
+}
+
+function abrirModalEditarProducto(id) {
+  const p = globalData.productos.find(x => x.id == id);
+  if (!p) return;
+  document.getElementById("formNuevoProducto")?.reset();
+  if (document.getElementById("prodEditId")) document.getElementById("prodEditId").value = p.id;
+  document.getElementById("prodNombre").value = p.nombre || "";
+  document.getElementById("prodUnidad").value = p.unidad || "Kg/L";
+  document.getElementById("prodStockInicial").value = p.stock_anterior ?? 0;
+  document.getElementById("prodPrecioRef").value = p.precio_referencial ?? 0;
+
+  const title = document.getElementById("modalNuevoProductoTitle");
+  if (title) title.textContent = `✏️ Editar Insumo: ${p.nombre}`;
+  const btn = document.getElementById("btnGuardarProducto");
+  if (btn) btn.textContent = "Actualizar Insumo";
+  document.getElementById("modalNuevoProducto")?.showModal();
 }
 
 async function guardarNuevoProducto(e) {
   e.preventDefault();
+  const editId = document.getElementById("prodEditId")?.value;
   const stRaw = document.getElementById("prodStockInicial").value || "0";
   const prRaw = document.getElementById("prodPrecioRef").value || "0";
   const st = parseFloat(String(stRaw).replace(',', '.')) || 0;
@@ -3068,13 +3483,62 @@ async function guardarNuevoProducto(e) {
     precio_referencial: pr
   };
 
-  const res = await dataInsert("productos", data);
-  if (res.success) {
-    cerrarDialog("modalNuevoProducto");
-    document.getElementById("formNuevoProducto").reset();
+  if (editId) {
+    const existing = globalData.productos.find(x => x.id == editId);
+    if (existing) {
+      const totComp = Number(existing.total_comprado) || 0;
+      const totTrat = Number(existing.total_aplicado) || 0;
+      data.stock_actual = Math.max(0, st + totComp - totTrat);
+    }
+    await dataUpdate("productos", Number(editId), data);
+    mostrarToast("Insumo actualizado exitosamente", "✅");
+  } else {
+    await dataInsert("productos", data);
     mostrarToast("Insumo agregado al catálogo", "✅");
-    actualizarDatos();
   }
+
+  cerrarDialog("modalNuevoProducto");
+  document.getElementById("formNuevoProducto").reset();
+  if (document.getElementById("prodEditId")) document.getElementById("prodEditId").value = "";
+  actualizarDatos();
+}
+
+function abrirModalEditarPagoAlquiler(pagoId, contratoId) {
+  const p = (globalData.alquileresPagos || []).find(x => x.id == pagoId);
+  const contrato = (globalData.alquileresParcelas || []).find(x => x.id == contratoId);
+  if (!p || !contrato) return;
+
+  document.getElementById("formPagoAlquiler")?.reset();
+  document.getElementById("pagoAlquilerId").value = p.id;
+  document.getElementById("pagoContratoId").value = contratoId;
+
+  const pagos = (globalData.alquileresPagos || []).filter(item => item.alquiler_id == contratoId);
+  const cobrado = pagos.reduce((acc, item) => acc + (Number(item.monto) || 0), 0);
+  const saldo = Math.max(0, (Number(contrato.monto_total) || 0) - cobrado);
+
+  const arrEl = document.getElementById("pagoAlqInfoArrendatario");
+  if (arrEl) arrEl.textContent = contrato.arrendatario || "Particular";
+  const parcEl = document.getElementById("pagoAlqInfoParcela");
+  if (parcEl) parcEl.textContent = `${contrato.parcela_nombre || 'Parcela'} (${contrato.hectareas || 0} Ha)`;
+  const saldoEl = document.getElementById("pagoAlqInfoSaldo");
+  if (saldoEl) saldoEl.textContent = formatMoney(saldo);
+  const totEl = document.getElementById("pagoAlqInfoTotal");
+  if (totEl) totEl.textContent = `Pactado: ${formatMoney(contrato.monto_total)}`;
+
+  document.getElementById("pagoFecha").value = p.fecha || "";
+  document.getElementById("pagoMonto").value = p.monto ?? "";
+  document.getElementById("pagoNroCuota").value = p.nro_cuota || "";
+  document.getElementById("pagoMetodo").value = p.metodo || "Efectivo";
+  document.getElementById("pagoComprobante").value = p.nro_comprobante || "";
+  document.getElementById("pagoNotas").value = p.notas || "";
+
+  const titleEl = document.getElementById("modalPagoAlqTitle");
+  if (titleEl) titleEl.textContent = "✏️ Editar Abono de Alquiler";
+  const btnEl = document.getElementById("btnGuardarPagoAlquiler");
+  if (btnEl) btnEl.textContent = "Actualizar Abono";
+
+  cerrarDialog("modalHistorialPagos");
+  document.getElementById("modalPagoAlquiler")?.showModal();
 }
 
 async function guardarTrabajador(e) {
