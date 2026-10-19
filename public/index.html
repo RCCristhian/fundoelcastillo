@@ -917,11 +917,11 @@
                 <tr>
                   <th class="py-2.5 px-3">Fecha</th>
                   <th class="py-2.5 px-3">Cultivo / Lote</th>
-                  <th class="py-2.5 px-3">Producto</th>
-                  <th class="py-2.5 px-3 text-right">Dosis/Cant.</th>
+                  <th class="py-2.5 px-3">Insumo(s) / Mezcla</th>
+                  <th class="py-2.5 px-3 text-right">Dosis / Cant.</th>
                   <th class="py-2.5 px-3 text-right">Costo Unit.</th>
                   <th class="py-2.5 px-3 text-right">Costo Total</th>
-                  <th class="py-2.5 px-3">Notas / Plaga</th>
+                  <th class="py-2.5 px-3">Objetivo / Plaga</th>
                   <th class="py-2.5 px-3 text-center">Acción</th>
                 </tr>
               </thead>
@@ -1302,50 +1302,62 @@
   </dialog>
 
   <!-- Modal Tratamiento -->
-  <dialog id="modalTratamiento" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-md w-[92vw]">
-    <div class="bg-white rounded-2xl overflow-hidden">
-      <div class="bg-teal-700 text-white px-5 py-3.5 flex items-center justify-between">
-        <h3 id="modalTratamientoTitle" class="font-bold text-sm">Aplicación de Insumo / Químico</h3>
+  <dialog id="modalTratamiento" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-lg w-[95vw]">
+    <div class="bg-white rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="bg-teal-700 text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+        <h3 id="modalTratamientoTitle" class="font-bold text-sm flex items-center gap-1.5">
+          <span>🧪</span> Aplicación de Insumos / Mezcla
+        </h3>
         <button onclick="cerrarDialog('modalTratamiento')" class="text-white/80 hover:text-white text-lg">&times;</button>
       </div>
-      <form id="formTratamiento" onsubmit="guardarTratamiento(event)" class="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+      <form id="formTratamiento" onsubmit="guardarTratamiento(event)" class="p-5 space-y-4 text-xs overflow-y-auto">
+        <input type="hidden" id="trataEditMezclaId" value="">
         <input type="hidden" id="trataEditId" value="">
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Fecha *</label>
             <input type="date" id="trataFecha" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
           </div>
           <div>
-            <label class="block font-semibold text-slate-700 mb-1">Variedad / Lote *</label>
+            <label class="block font-semibold text-slate-700 mb-1">Cultivo / Lote *</label>
             <select id="trataVariedadId" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500"></select>
           </div>
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 mb-1">Producto / Insumo *</label>
-          <select id="trataProductoId" onchange="actualizarPrecioInsumo(this.value)" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500"></select>
-          <p id="trataStockInfo" class="text-[10px] text-slate-500 mt-1">Stock en almacén: 0</p>
+          <label class="block font-semibold text-slate-700 mb-1">Objetivo / Plaga / Notas</label>
+          <input type="text" id="trataNotas" placeholder="Ej: Control de arañita roja y oídio / Mezcla foliar floración" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Dosis / Cantidad *</label>
-            <input type="number" step="0.01" id="trataCantidad" oninput="calcularTotalTratamiento()" required placeholder="Ej: 2.5" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
+        <!-- SECCIÓN PRODUCTOS / INSUMOS DE LA MEZCLA -->
+        <div class="space-y-2 pt-2 border-t border-slate-100">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-800 text-xs block">Productos / Insumos en la Mezcla</span>
+              <span class="text-[10px] text-slate-500">Puedes mezclar 1 o varios productos en la misma aplicación</span>
+            </div>
+            <button type="button" onclick="agregarFilaProductoTratamiento()" class="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold rounded-lg border border-teal-200 text-[11px] flex items-center gap-1 transition">
+              <span>+</span> Insumo
+            </button>
           </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Costo Unit. (<span class="monedaLabel">S/.</span>) *</label>
-            <input type="number" step="0.01" id="trataPrecioUnitario" oninput="calcularTotalTratamiento()" required class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-teal-500">
+
+          <div id="trataProductosContainer" class="space-y-2.5 max-h-[42vh] overflow-y-auto pr-0.5">
+            <!-- Filas dinámicas de insumos agregadas vía JS -->
           </div>
+
+          <button type="button" onclick="agregarFilaProductoTratamiento()" class="w-full py-2 border-2 border-dashed border-teal-200 hover:border-teal-400 hover:bg-teal-50/40 text-teal-700 font-bold rounded-xl flex items-center justify-center gap-1.5 text-xs transition mt-1">
+            <span>+</span> Agregar otro producto a la mezcla
+          </button>
         </div>
 
-        <div class="p-3 bg-teal-50 rounded-xl border border-teal-100 flex items-center justify-between">
-          <span class="font-bold text-teal-900">Costo Total:</span>
-          <span id="trataTotalCalculado" class="font-black text-teal-700 text-sm">S/. 0.00</span>
-        </div>
-
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Notas / Dosis / Plaga</label>
-          <input type="text" id="trataNotas" placeholder="Ej: Control de arañita roja" class="w-full px-3 py-2 border rounded-lg">
+        <!-- RESUMEN COSTO TOTAL -->
+        <div class="p-3 bg-teal-50/80 rounded-xl border border-teal-100 flex items-center justify-between">
+          <div>
+            <span class="block text-[11px] font-bold text-teal-950">Total de la Aplicación (<span id="trataConteoProductos">1</span> producto(s))</span>
+            <span class="text-[10px] text-teal-700">Se descontará automáticamente del stock de cada insumo</span>
+          </div>
+          <span id="trataTotalCalculado" class="font-black text-teal-700 text-base">S/. 0.00</span>
         </div>
 
         <div class="pt-3 flex justify-end space-x-2 border-t">
@@ -2053,6 +2065,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261011_01"></script>
+  <script src="app.js?v=20261018_01"></script>
 </body>
 </html>

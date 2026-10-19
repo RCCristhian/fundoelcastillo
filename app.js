@@ -525,8 +525,8 @@ async function dataInsert(table, record) {
   return { success: true, id: record.id, sincronizadoRemoto };
 }
 
-async function dataDelete(table, id) {
-  if (!confirm("¿Deseas eliminar este registro?")) return false;
+async function dataDelete(table, id, confirmar = true, recargar = true) {
+  if (confirmar && !confirm("¿Deseas eliminar este registro?")) return false;
 
   if (supabaseClient) {
     try {
@@ -540,8 +540,12 @@ async function dataDelete(table, id) {
   const filtered = localList.filter(item => item.id != id);
   setLocalTable(table, filtered);
 
-  mostrarToast("Registro eliminado", "🗑️");
-  actualizarDatos();
+  if (confirmar) {
+    mostrarToast("Registro eliminado", "🗑️");
+  }
+  if (recargar) {
+    actualizarDatos();
+  }
   return true;
 }
 
@@ -1907,10 +1911,27 @@ function renderTablaJornales(lista) {
   });
 }
 
+function extraerInfoMezcla(t) {
+  if (!t) return { mezcla_id: "", notas_limpias: "" };
+  if (t.mezcla_id && t.notas_limpias !== undefined) {
+    return { mezcla_id: t.mezcla_id, notas_limpias: t.notas_limpias };
+  }
+  const notas = t.notas || "";
+  const match = notas.match(/\[mezcla:([^\]]+)\]/);
+  const mid = match ? match[1] : (t.mezcla_id || `single_${t.id}`);
+  const limpias = match ? notas.replace(/\[mezcla:[^\]]+\]\s*/, '').trim() : notas.trim();
+  t.mezcla_id = mid;
+  t.notas_limpias = limpias;
+  return { mezcla_id: mid, notas_limpias: limpias };
+}
+
 async function cargarTratamientos() {
   const res = await dataFetch("tratamientos", "*", "fecha", false);
   if (!res.success) return;
-  globalData.tratamientos = res.data;
+  globalData.tratamientos = (res.data || []).map(t => {
+    extraerInfoMezcla(t);
+    return t;
+  });
   renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
 }
 
@@ -1919,30 +1940,117 @@ function renderTablaTratamientos(lista) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
+  if (!lista || lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400 italic">No hay aplicaciones registradas en esta campaña.</td></tr>`;
+    return;
+  }
+
+  // Agrupar por mezcla_id manteniendo el orden de fecha
+  const gruposMap = new Map();
   lista.forEach(t => {
-    const varItem = globalData.variedades.find(v => v.id == t.variedad_id);
-    const prodItem = globalData.productos.find(p => p.id == t.producto_id);
-    const varNombre = t.variedad_nombre || varItem?.nombre || "Lote";
-    const prodNombre = t.producto_nombre || prodItem?.nombre || "Insumo";
-    const unidad = t.producto_unidad || prodItem?.unidad || "Kg/L";
+    extraerInfoMezcla(t);
+    const mid = t.mezcla_id || `single_${t.id}`;
+    if (!gruposMap.has(mid)) {
+      gruposMap.set(mid, []);
+    }
+    gruposMap.get(mid).push(t);
+  });
+
+  gruposMap.forEach((items, mid) => {
+    const primer = items[0];
+    const varItem = globalData.variedades.find(v => v.id == primer.variedad_id);
+    const varNombre = primer.variedad_nombre || varItem?.nombre || "Lote";
+    const fecha = primer.fecha || "-";
+    const notas = primer.notas_limpias || primer.notas || "-";
+    const totalMezcla = items.reduce((acc, it) => acc + (Number(it.total) || 0), 0);
 
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
-    tr.innerHTML = `
-      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${t.fecha}</td>
-      <td class="py-2.5 px-3 font-bold text-slate-900">${varNombre}</td>
-      <td class="py-2.5 px-3 font-semibold text-teal-800">${prodNombre}</td>
-      <td class="py-2.5 px-3 text-right font-medium">${t.cantidad} ${unidad}</td>
-      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(t.precio_unitario)}</td>
-      <td class="py-2.5 px-3 text-right font-black text-teal-700">${formatMoney(t.total)}</td>
-      <td class="py-2.5 px-3 text-slate-500">${t.notas || '-'}</td>
-      <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
-        <button onclick="abrirModalEditarTratamiento(${t.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar aplicación">✏️</button>
-        <button onclick="dataDelete('tratamientos', ${t.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
-      </td>
-    `;
+
+    if (items.length === 1) {
+      // Aplicación simple (1 solo producto)
+      const it = items[0];
+      const prodItem = globalData.productos.find(p => p.id == it.producto_id);
+      const prodNombre = it.producto_nombre || prodItem?.nombre || "Insumo";
+      const unidad = it.producto_unidad || prodItem?.unidad || "Kg/L";
+
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">${fecha}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-900">${varNombre}</td>
+        <td class="py-2.5 px-3 font-semibold text-teal-800">${prodNombre}</td>
+        <td class="py-2.5 px-3 text-right font-medium whitespace-nowrap">${formatNum(it.cantidad, 2)} ${unidad}</td>
+        <td class="py-2.5 px-3 text-right text-slate-600 whitespace-nowrap">${formatMoney(it.precio_unitario)}</td>
+        <td class="py-2.5 px-3 text-right font-black text-teal-700 whitespace-nowrap">${formatMoney(it.total)}</td>
+        <td class="py-2.5 px-3 text-slate-500 max-w-xs truncate" title="${notas}">${notas}</td>
+        <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+          <button onclick="abrirModalEditarTratamiento('${mid}')" class="text-blue-600 hover:text-blue-800 p-1" title="Editar aplicación">✏️</button>
+          <button onclick="eliminarTratamiento('${mid}')" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar aplicación">🗑️</button>
+        </td>
+      `;
+    } else {
+      // Mezcla con múltiples productos
+      const detalleInsumosHtml = items.map(it => {
+        const pItem = globalData.productos.find(p => p.id == it.producto_id);
+        const pNombre = it.producto_nombre || pItem?.nombre || "Insumo";
+        const pUnidad = it.producto_unidad || pItem?.unidad || "Kg/L";
+        return `
+          <div class="flex items-center justify-between text-[11px] gap-2 py-0.5">
+            <span class="font-medium text-slate-800">• ${pNombre}</span>
+            <span class="text-slate-500 font-mono text-[10px] whitespace-nowrap">${formatNum(it.cantidad, 2)} ${pUnidad} × ${formatMoney(it.precio_unitario)} = <strong class="text-teal-700 font-semibold">${formatMoney(it.total)}</strong></span>
+          </div>
+        `;
+      }).join("");
+
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 align-top whitespace-nowrap">${fecha}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-900 align-top">${varNombre}</td>
+        <td class="py-2.5 px-3 align-top">
+          <div class="flex items-center gap-1.5 mb-1.5">
+            <span class="bg-teal-100 text-teal-900 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span>🧪</span> Mezcla (${items.length} productos)
+            </span>
+          </div>
+          <div class="bg-teal-50/60 p-2 rounded-lg border border-teal-100/80 space-y-0.5 max-w-md">
+            ${detalleInsumosHtml}
+          </div>
+        </td>
+        <td class="py-2.5 px-3 text-right font-medium text-slate-600 align-top whitespace-nowrap">
+          <span class="inline-block px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-700">${items.length} insumos</span>
+        </td>
+        <td class="py-2.5 px-3 text-right text-slate-400 align-top whitespace-nowrap">-</td>
+        <td class="py-2.5 px-3 text-right font-black text-teal-700 align-top whitespace-nowrap">${formatMoney(totalMezcla)}</td>
+        <td class="py-2.5 px-3 text-slate-500 align-top max-w-xs truncate" title="${notas}">${notas}</td>
+        <td class="py-2.5 px-3 text-center align-top whitespace-nowrap space-x-1">
+          <button onclick="abrirModalEditarTratamiento('${mid}')" class="text-blue-600 hover:text-blue-800 p-1" title="Editar mezcla">✏️</button>
+          <button onclick="eliminarTratamiento('${mid}')" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar mezcla">🗑️</button>
+        </td>
+      `;
+    }
+
     tbody.appendChild(tr);
   });
+}
+
+async function eliminarTratamiento(midOrId) {
+  const items = (globalData.tratamientos || []).filter(t => {
+    extraerInfoMezcla(t);
+    return t.mezcla_id == midOrId || t.id == midOrId || `single_${t.id}` == midOrId;
+  });
+  if (!items || items.length === 0) return;
+
+  const n = items.length;
+  const msg = n > 1
+    ? `¿Deseas eliminar esta aplicación con ${n} productos mezclados?\nSe restituirá el inventario de cada insumo en almacén.`
+    : `¿Deseas eliminar este tratamiento?\nSe restituirá el inventario del insumo en almacén.`;
+
+  if (!confirm(msg)) return;
+
+  for (const it of items) {
+    await dataDelete("tratamientos", it.id, false, false);
+  }
+
+  mostrarToast(n > 1 ? `Mezcla (${n} productos) eliminada` : "Tratamiento eliminado", "🗑️");
+  await actualizarDatos();
 }
 
 async function cargarCompras() {
@@ -2889,13 +2997,6 @@ function abrirModalEditarJornal(id) {
   document.getElementById("modalJornal")?.showModal();
 }
 
-function abrirModalTratamiento() {
-  const sel = document.getElementById("trataProductoId");
-  if (sel && sel.value) {
-    actualizarPrecioInsumo(sel.value);
-  }
-  document.getElementById("modalTratamiento")?.showModal();
-}
 
 function abrirModalGastoGeneral() {
   document.getElementById("formGastoGeneral")?.reset();
@@ -2971,9 +3072,15 @@ function calcularTotalJornal() {
 }
 
 function calcularTotalTratamiento() {
-  const c = parseFloat(document.getElementById("trataCantidad").value) || 0;
-  const p = parseFloat(document.getElementById("trataPrecioUnitario").value) || 0;
-  document.getElementById("trataTotalCalculado").textContent = formatMoney(c * p);
+  if (typeof recalcularTotalesTratamientoModal === "function") {
+    recalcularTotalesTratamientoModal();
+    return;
+  }
+  const c = parseFloat(document.getElementById("trataCantidad")?.value) || 0;
+  const p = parseFloat(document.getElementById("trataPrecioUnitario")?.value) || 0;
+  if (document.getElementById("trataTotalCalculado")) {
+    document.getElementById("trataTotalCalculado").textContent = formatMoney(c * p);
+  }
 }
 
 function calcularTotalCompra() {
@@ -3134,11 +3241,180 @@ async function guardarJornal(e) {
   }
 }
 
+// ================= TRATAMIENTOS / FITOSANITARIOS (SOPORTE MULTI-PRODUCTO / MEZCLAS) =================
+let contadorFilasTratamiento = 0;
+
+function agregarFilaProductoTratamiento(datosIniciales = null) {
+  contadorFilasTratamiento++;
+  const rowId = 'trata_row_' + contadorFilasTratamiento;
+  const container = document.getElementById("trataProductosContainer");
+  if (!container) return;
+
+  let opciones = '<option value="">-- Seleccionar Insumo / Producto --</option>';
+  (globalData.productos || []).forEach(p => {
+    const sel = (datosIniciales && datosIniciales.producto_id == p.id) ? 'selected' : '';
+    opciones += `<option value="${p.id}" ${sel}>${p.nombre} (${p.unidad || 'Kg/L'})</option>`;
+  });
+
+  const row = document.createElement("div");
+  row.className = "p-3 bg-slate-50 hover:bg-slate-50/90 rounded-xl border border-slate-200 space-y-2 relative transition shadow-2xs trata-producto-fila";
+  row.id = rowId;
+  row.dataset.recordId = datosIniciales?.id || "";
+
+  row.innerHTML = `
+    <div class="flex items-center justify-between">
+      <span class="font-bold text-[11px] text-teal-900 flex items-center gap-1.5">
+        <span class="w-5 h-5 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center text-[10px] font-black trata-num-item">1</span>
+        Insumo / Producto
+      </span>
+      <button type="button" onclick="eliminarFilaProductoTratamiento('${rowId}')" class="text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition" title="Quitar este producto">
+        <span>&times;</span> Quitar
+      </button>
+    </div>
+
+    <div>
+      <select class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 trata-input-producto" onchange="onCambioProductoFila('${rowId}')" required>
+        ${opciones}
+      </select>
+      <div class="flex items-center justify-between text-[10px] text-slate-500 mt-1 px-0.5">
+        <span id="${rowId}_stockInfo">Stock disponible: -</span>
+        <span id="${rowId}_unidadBadge" class="font-bold text-teal-700"></span>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 pt-1 items-end">
+      <div>
+        <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Dosis / Cantidad *</label>
+        <input type="number" step="0.01" min="0.001" placeholder="0.00" value="${datosIniciales?.cantidad ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-cantidad" oninput="recalcularTotalesTratamientoModal()" required>
+      </div>
+      <div>
+        <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Costo Unit. (<span class="monedaLabel">S/.</span>) *</label>
+        <input type="number" step="0.01" min="0" placeholder="0.00" value="${datosIniciales?.precio_unitario ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-precio" oninput="recalcularTotalesTratamientoModal()" required>
+      </div>
+      <div class="text-right">
+        <span class="block text-slate-500 text-[10px] mb-0.5 font-medium">Subtotal</span>
+        <span id="${rowId}_subtotal" class="font-black text-teal-800 text-xs block py-1.5 font-mono">S/. 0.00</span>
+      </div>
+    </div>
+  `;
+
+  container.appendChild(row);
+  renumerarFilasTratamiento();
+  if (datosIniciales) {
+    onCambioProductoFila(rowId, false);
+  }
+  recalcularTotalesTratamientoModal();
+}
+
+function eliminarFilaProductoTratamiento(rowId) {
+  const container = document.getElementById("trataProductosContainer");
+  if (!container) return;
+  const filas = container.querySelectorAll(".trata-producto-fila");
+  if (filas.length <= 1) {
+    mostrarToast("La mezcla debe contener al menos un producto", "⚠️");
+    return;
+  }
+  const el = document.getElementById(rowId);
+  if (el) el.remove();
+  renumerarFilasTratamiento();
+  recalcularTotalesTratamientoModal();
+}
+
+function renumerarFilasTratamiento() {
+  const container = document.getElementById("trataProductosContainer");
+  if (!container) return;
+  const filas = container.querySelectorAll(".trata-producto-fila");
+  filas.forEach((f, idx) => {
+    const numEl = f.querySelector(".trata-num-item");
+    if (numEl) numEl.textContent = idx + 1;
+  });
+}
+
+function onCambioProductoFila(rowId, sobrescribirPrecio = true) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+
+  const select = row.querySelector(".trata-input-producto");
+  const prodId = parseInt(select?.value);
+  const prod = (globalData.productos || []).find(p => p.id == prodId);
+
+  const stockInfo = document.getElementById(`${rowId}_stockInfo`);
+  const unidadBadge = document.getElementById(`${rowId}_unidadBadge`);
+  const precInput = row.querySelector(".trata-input-precio");
+
+  if (prod) {
+    let costoUnitario = Number(prod.precio_referencial) || 0;
+    const comprasProd = (globalData.compras || []).filter(c => c.producto_id == prod.id && Number(c.precio_unitario) > 0);
+    if (comprasProd.length > 0) {
+      const ult = comprasProd[comprasProd.length - 1];
+      if (ult && Number(ult.precio_unitario) > 0) costoUnitario = Number(ult.precio_unitario);
+    }
+
+    if (sobrescribirPrecio && precInput) {
+      precInput.value = costoUnitario;
+    }
+
+    if (stockInfo) {
+      const stockNum = Number(prod.stock_actual) || 0;
+      const stockColor = stockNum <= 0 ? "text-rose-600 font-bold" : "text-slate-600 font-semibold";
+      stockInfo.innerHTML = `Stock en almacén: <span class="${stockColor}">${formatNum(stockNum, 1)} ${prod.unidad || 'Kg/L'}</span>`;
+    }
+    if (unidadBadge) {
+      unidadBadge.textContent = prod.unidad || "Kg/L";
+    }
+  } else {
+    if (stockInfo) stockInfo.textContent = "Stock disponible: -";
+    if (unidadBadge) unidadBadge.textContent = "";
+    if (sobrescribirPrecio && precInput) precInput.value = "";
+  }
+
+  recalcularTotalesTratamientoModal();
+}
+
+function recalcularTotalesTratamientoModal() {
+  const container = document.getElementById("trataProductosContainer");
+  if (!container) return;
+  const filas = container.querySelectorAll(".trata-producto-fila");
+
+  let totalMezcla = 0;
+
+  filas.forEach(f => {
+    const cantInput = f.querySelector(".trata-input-cantidad");
+    const precInput = f.querySelector(".trata-input-precio");
+    const subtotalEl = f.querySelector("[id$='_subtotal']");
+
+    const c = parseFloat(String(cantInput?.value || "0").replace(',', '.')) || 0;
+    const p = parseFloat(String(precInput?.value || "0").replace(',', '.')) || 0;
+    const sub = Math.round(c * p * 100) / 100;
+    totalMezcla += sub;
+
+    if (subtotalEl) subtotalEl.textContent = formatMoney(sub);
+  });
+
+  const totalEl = document.getElementById("trataTotalCalculado");
+  if (totalEl) totalEl.textContent = formatMoney(totalMezcla);
+
+  const conteoEl = document.getElementById("trataConteoProductos");
+  if (conteoEl) conteoEl.textContent = filas.length;
+
+  const btn = document.getElementById("btnGuardarTratamiento");
+  if (btn) {
+    const editMezclaId = document.getElementById("trataEditMezclaId")?.value;
+    if (editMezclaId) {
+      btn.textContent = `Actualizar Aplicación (${filas.length} producto${filas.length > 1 ? 's' : ''})`;
+    } else {
+      btn.textContent = `Guardar y Descontar (${filas.length} producto${filas.length > 1 ? 's' : ''})`;
+    }
+  }
+}
+
 function abrirModalTratamiento() {
   document.getElementById("formTratamiento")?.reset();
+  if (document.getElementById("trataEditMezclaId")) document.getElementById("trataEditMezclaId").value = "";
   if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = "";
+
   const title = document.getElementById("modalTratamientoTitle");
-  if (title) title.textContent = "Aplicación de Insumo / Químico";
+  if (title) title.innerHTML = `<span>🧪</span> Aplicación de Insumos / Mezcla`;
   const btn = document.getElementById("btnGuardarTratamiento");
   if (btn) btn.textContent = "Guardar y Descontar";
 
@@ -3154,83 +3430,198 @@ function abrirModalTratamiento() {
     }
   }
 
-  const pSel = document.getElementById("trataProductoId");
-  if (pSel && pSel.value) actualizarPrecioInsumo(pSel.value);
+  const container = document.getElementById("trataProductosContainer");
+  if (container) {
+    container.innerHTML = "";
+    agregarFilaProductoTratamiento();
+  }
+
+  recalcularTotalesTratamientoModal();
   document.getElementById("modalTratamiento")?.showModal();
 }
 
-function abrirModalEditarTratamiento(id) {
-  const t = globalData.tratamientos.find(x => x.id == id);
-  if (!t) return;
+function abrirModalEditarTratamiento(midOrId) {
+  const items = (globalData.tratamientos || []).filter(t => {
+    extraerInfoMezcla(t);
+    return t.mezcla_id == midOrId || t.id == midOrId || `single_${t.id}` == midOrId;
+  });
+  if (!items || items.length === 0) return;
+
+  const primer = items[0];
   document.getElementById("formTratamiento")?.reset();
-  if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = t.id;
-  document.getElementById("trataFecha").value = t.fecha || "";
-  document.getElementById("trataVariedadId").value = t.variedad_id || "";
-  document.getElementById("trataProductoId").value = t.producto_id || "";
-  document.getElementById("trataCantidad").value = t.cantidad ?? "";
-  document.getElementById("trataPrecioUnitario").value = t.precio_unitario ?? "";
-  document.getElementById("trataNotas").value = t.notas || "";
+
+  const editMezclaEl = document.getElementById("trataEditMezclaId");
+  if (editMezclaEl) editMezclaEl.value = primer.mezcla_id || `single_${primer.id}`;
+
+  const editIdEl = document.getElementById("trataEditId");
+  if (editIdEl) editIdEl.value = primer.id;
+
+  const fechaEl = document.getElementById("trataFecha");
+  if (fechaEl) fechaEl.value = primer.fecha || "";
+
+  const varEl = document.getElementById("trataVariedadId");
+  if (varEl) varEl.value = primer.variedad_id || "";
+
+  const notasEl = document.getElementById("trataNotas");
+  if (notasEl) notasEl.value = primer.notas_limpias !== undefined ? primer.notas_limpias : (primer.notas || "");
 
   const title = document.getElementById("modalTratamientoTitle");
-  if (title) title.textContent = "✏️ Editar Tratamiento / Aplicación";
+  if (title) {
+    title.innerHTML = items.length > 1
+      ? `<span>✏️</span> Editar Mezcla (${items.length} productos)`
+      : `<span>✏️</span> Editar Aplicación de Insumo`;
+  }
   const btn = document.getElementById("btnGuardarTratamiento");
   if (btn) btn.textContent = "Actualizar Aplicación";
 
-  calcularTotalTratamiento();
+  const container = document.getElementById("trataProductosContainer");
+  if (container) {
+    container.innerHTML = "";
+    items.forEach(it => {
+      agregarFilaProductoTratamiento({
+        id: it.id,
+        producto_id: it.producto_id,
+        cantidad: it.cantidad,
+        precio_unitario: it.precio_unitario
+      });
+    });
+  }
+
+  recalcularTotalesTratamientoModal();
   document.getElementById("modalTratamiento")?.showModal();
 }
 
 async function guardarTratamiento(e) {
   e.preventDefault();
-  const editId = document.getElementById("trataEditId")?.value;
-  const cRaw = document.getElementById("trataCantidad").value || "0";
-  const pRaw = document.getElementById("trataPrecioUnitario").value || "0";
-  const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
-  const p = parseFloat(String(pRaw).replace(',', '.')) || 0;
-  const prodId = parseInt(document.getElementById("trataProductoId").value);
-  const prod = globalData.productos.find(pr => pr.id == prodId);
-  const varId = parseInt(document.getElementById("trataVariedadId").value);
+
+  const fecha = document.getElementById("trataFecha")?.value;
+  const varId = parseInt(document.getElementById("trataVariedadId")?.value);
+  const notasBase = (document.getElementById("trataNotas")?.value || "").trim();
+  const editMezclaId = document.getElementById("trataEditMezclaId")?.value;
+
+  if (!fecha || !varId) {
+    mostrarToast("Por favor completa la fecha y el lote/variedad", "⚠️");
+    return;
+  }
+
   const varItem = globalData.variedades.find(v => v.id == varId);
+  const container = document.getElementById("trataProductosContainer");
+  if (!container) return;
+  const filas = container.querySelectorAll(".trata-producto-fila");
 
-  const data = {
-    fecha: document.getElementById("trataFecha").value,
-    variedad_id: varId,
-    variedad_nombre: varItem ? varItem.nombre : "",
-    producto_id: prodId,
-    producto_nombre: prod ? prod.nombre : "",
-    producto_unidad: prod ? prod.unidad : "Kg/L",
-    cantidad: c,
-    precio_unitario: p,
-    total: Math.round(c * p * 100) / 100,
-    notas: document.getElementById("trataNotas").value.trim()
-  };
+  if (filas.length === 0) {
+    mostrarToast("Debes agregar al menos un producto a la aplicación", "⚠️");
+    return;
+  }
 
-  if (editId) {
-    const oldT = globalData.tratamientos.find(x => x.id == editId);
-    if (prod) {
-      const oldCant = Number(oldT?.cantidad) || 0;
-      const delta = c - oldCant;
-      const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) - delta);
-      prod.stock_actual = nuevoStock;
-      await dataUpdate("productos", prod.id, { stock_actual: nuevoStock });
+  const itemsGuardar = [];
+  for (const f of filas) {
+    const prodSelect = f.querySelector(".trata-input-producto");
+    const cantInput = f.querySelector(".trata-input-cantidad");
+    const precInput = f.querySelector(".trata-input-precio");
+
+    const prodId = parseInt(prodSelect?.value);
+    const c = parseFloat(String(cantInput?.value || "0").replace(',', '.')) || 0;
+    const p = parseFloat(String(precInput?.value || "0").replace(',', '.')) || 0;
+    const existingRecId = f.dataset.recordId ? Number(f.dataset.recordId) : null;
+
+    if (!prodId) {
+      mostrarToast("Por favor selecciona todos los insumos de la mezcla", "⚠️");
+      prodSelect?.focus();
+      return;
     }
-    await dataUpdate("tratamientos", Number(editId), data);
-    mostrarToast("Tratamiento actualizado exitosamente", "✅");
+    if (c <= 0) {
+      mostrarToast("La cantidad debe ser mayor a 0 para cada insumo", "⚠️");
+      cantInput?.focus();
+      return;
+    }
+
+    const prod = globalData.productos.find(pr => pr.id == prodId);
+    itemsGuardar.push({
+      existingRecId,
+      prodId,
+      prod,
+      cantidad: c,
+      precio_unitario: p,
+      total: Math.round(c * p * 100) / 100
+    });
+  }
+
+  // Generar o reutilizar ID de mezcla
+  let mezclaId = editMezclaId;
+  if (!mezclaId || mezclaId.startsWith("single_")) {
+    mezclaId = "mz_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+  }
+
+  // Guardar tag de mezcla en notas para trazabilidad y agrupamiento sin romper columnas Supabase
+  const notasFinal = `[mezcla:${mezclaId}] ${notasBase}`.trim();
+
+  // Guardar o actualizar
+  if (editMezclaId) {
+    const viejosRegistros = (globalData.tratamientos || []).filter(t => {
+      extraerInfoMezcla(t);
+      return t.mezcla_id == editMezclaId || t.id == editMezclaId || `single_${t.id}` == editMezclaId;
+    });
+    const idsConservados = new Set(itemsGuardar.filter(i => i.existingRecId).map(i => i.existingRecId));
+
+    // 1. Eliminar filas que el usuario removió de la mezcla
+    for (const vr of viejosRegistros) {
+      if (!idsConservados.has(vr.id)) {
+        await dataDelete("tratamientos", vr.id, false, false);
+      }
+    }
+
+    // 2. Actualizar las conservadas o insertar nuevas
+    for (const item of itemsGuardar) {
+      const payload = {
+        fecha,
+        variedad_id: varId,
+        variedad_nombre: varItem ? varItem.nombre : "",
+        producto_id: item.prodId,
+        producto_nombre: item.prod ? item.prod.nombre : "",
+        producto_unidad: item.prod ? item.prod.unidad : "Kg/L",
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario,
+        total: item.total,
+        notas: notasFinal
+      };
+
+      if (item.existingRecId && viejosRegistros.some(vr => vr.id == item.existingRecId)) {
+        await dataUpdate("tratamientos", item.existingRecId, payload);
+      } else {
+        await dataInsert("tratamientos", payload);
+      }
+    }
+
+    mostrarToast("Mezcla / Aplicación actualizada exitosamente", "✅");
   } else {
-    await dataInsert("tratamientos", data);
-    if (prod) {
-      const nuevoStock = Math.max(0, (Number(prod.stock_actual) || 0) - c);
-      prod.stock_actual = nuevoStock;
-      await dataUpdate("productos", prod.id, { stock_actual: nuevoStock });
+    // Nueva aplicación (puede ser de 1 o varios productos mezclados)
+    for (const item of itemsGuardar) {
+      const payload = {
+        fecha,
+        variedad_id: varId,
+        variedad_nombre: varItem ? varItem.nombre : "",
+        producto_id: item.prodId,
+        producto_nombre: item.prod ? item.prod.nombre : "",
+        producto_unidad: item.prod ? item.prod.unidad : "Kg/L",
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario,
+        total: item.total,
+        notas: notasFinal
+      };
+      await dataInsert("tratamientos", payload);
     }
-    mostrarToast("Aplicación registrada y stock descontado", "🧪");
+
+    const n = itemsGuardar.length;
+    mostrarToast(n > 1 ? `Mezcla registrada (${n} productos) y stock descontado` : "Aplicación registrada y stock descontado", "🧪");
   }
 
   cerrarDialog("modalTratamiento");
   document.getElementById("formTratamiento").reset();
+  if (document.getElementById("trataEditMezclaId")) document.getElementById("trataEditMezclaId").value = "";
   if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = "";
-  initFechasHoy();
-  actualizarDatos();
+
+  await actualizarDatos();
 }
 
 async function guardarGastoGeneral(e) {
