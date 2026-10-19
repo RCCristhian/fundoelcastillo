@@ -205,6 +205,7 @@ function limpiarPayloadParaSupabase(table, payload) {
   }
   const p = { ...payload };
   delete p.id;
+  delete p._pending_sync;
   return p;
 }
 
@@ -238,45 +239,47 @@ function removeDeletedId(table, id) {
 
 // Fusión inteligente no destructiva: Preserva registros nuevos locales y respeta registros eliminados
 function fusionarDatosRemotoYLocal(table, remoteData, localData) {
+  if (!Array.isArray(remoteData)) return localData || [];
+
   const deletedSet = getDeletedIds(table);
 
-  // Filtrar registros que fueron eliminados expresamente por el usuario
-  const validRemote = (remoteData || []).filter(r => !deletedSet.has(String(r.id)));
-  const validLocal = (localData || []).filter(l => !deletedSet.has(String(l.id)));
+  // Filtrar registros remotos que fueron eliminados localmente
+  const validRemote = remoteData.filter(r => !deletedSet.has(String(r.id)));
 
   const remoteMap = new Map();
   validRemote.forEach(r => remoteMap.set(String(r.id), r));
 
   const localMap = new Map();
-  validLocal.forEach(l => localMap.set(String(l.id), l));
+  (localData || []).forEach(l => {
+    if (!deletedSet.has(String(l.id))) {
+      localMap.set(String(l.id), l);
+    }
+  });
 
   const combined = [];
-  const processed = new Set();
 
-  // 1. Procesar registros que existen localmente
-  for (const [id, locItem] of localMap.entries()) {
-    processed.add(id);
-    if (!remoteMap.has(id)) {
-      // Registro local creado recientemente que aún no ha subido a la nube: ¡NO BORRAR!
-      combined.push(locItem);
-    } else {
-      const remItem = remoteMap.get(id);
-      const locTime = new Date(locItem.updated_at || locItem.created_at || 0).getTime();
+  // 1. Todos los registros remotos son la fuente de verdad principal
+  for (const [id, remItem] of remoteMap.entries()) {
+    const locItem = localMap.get(id);
+    if (locItem) {
+      const locTime = new Date(locItem.updated_at || 0).getTime();
       const remTime = new Date(remItem.updated_at || remItem.created_at || 0).getTime();
 
-      // Mantener la versión más reciente, conservando campos auxiliares
+      // Mantener la versión más reciente en caso de ediciones
       if (locTime > remTime) {
         combined.push({ ...remItem, ...locItem });
       } else {
         combined.push({ ...locItem, ...remItem });
       }
+    } else {
+      combined.push(remItem);
     }
   }
 
-  // 2. Agregar registros remotos que no estaban en local
-  for (const [id, remItem] of remoteMap.entries()) {
-    if (!processed.has(id)) {
-      combined.push(remItem);
+  // 2. Conservar ÚNICAMENTE registros locales que fueron creados sin conexión y tienen _pending_sync === true
+  for (const locItem of (localData || [])) {
+    if (locItem && locItem._pending_sync === true && !deletedSet.has(String(locItem.id)) && !remoteMap.has(String(locItem.id))) {
+      combined.push(locItem);
     }
   }
 
@@ -354,17 +357,22 @@ async function sincronizarTablaPendiente(table, localData) {
     }
 
     const remoteIds = new Set((remoteData || []).map(r => String(r.id)));
+    let huboSubidas = false;
     for (const record of localData) {
       if (deletedSet.has(String(record.id))) continue;
-      if (!remoteIds.has(String(record.id))) {
+      if (record && record._pending_sync === true && !remoteIds.has(String(record.id))) {
         const payload = limpiarPayloadParaSupabase(table, record);
         const { data, error } = await supabaseClient.from(table).insert([payload]).select();
         if (!error && data && data[0]?.id) {
           record.id = data[0].id;
+          delete record._pending_sync;
+          huboSubidas = true;
         }
       }
     }
-    setLocalTable(table, localData);
+    if (huboSubidas) {
+      setLocalTable(table, localData);
+    }
   } catch (e) {
     console.warn(`Error auto-sincronizando ${table}:`, e);
   }
@@ -397,25 +405,25 @@ async function ejecutarSincronizacionContinua() {
       const localData = getLocalTable(t);
       const merged = fusionarDatosRemotoYLocal(t, remoteData, localData);
 
-      if (JSON.stringify(merged) !== JSON.stringify(localData)) {
-        setLocalTable(t, merged);
-        huboCambios = true;
-      }
-
-      // Si hay elementos locales que no están en Supabase ni eliminados, subirlos
+      // Si hay elementos locales creados offline con _pending_sync === true que no están en Supabase ni eliminados, subirlos
       const remoteIds = new Set(remoteData.map(r => String(r.id)));
-      for (const locItem of localData) {
+      for (const locItem of merged) {
         if (deletedSet.has(String(locItem.id))) continue;
-        if (!remoteIds.has(String(locItem.id))) {
+        if (locItem && locItem._pending_sync === true && !remoteIds.has(String(locItem.id))) {
           const payload = limpiarPayloadParaSupabase(t, locItem);
           const { data: insData, error: insErr } = await supabaseClient.from(t).insert([payload]).select();
           if (!insErr && insData && insData[0]?.id) {
             locItem.id = insData[0].id;
+            delete locItem._pending_sync;
             huboCambios = true;
           }
         }
       }
-      setLocalTable(t, localData);
+
+      if (JSON.stringify(merged) !== JSON.stringify(localData) || huboCambios) {
+        setLocalTable(t, merged);
+        huboCambios = true;
+      }
     }
 
     if (huboCambios) {
@@ -503,7 +511,7 @@ async function forzarSincronizacionNube() {
 
       const remoteIds = new Set((remoteData || []).map(r => String(r.id)));
       const localData = getLocalTable(t);
-      const pendientes = localData.filter(item => !remoteIds.has(String(item.id)));
+      const pendientes = localData.filter(item => item && item._pending_sync === true && !remoteIds.has(String(item.id)));
 
       if (pendientes.length > 0) {
         for (const item of pendientes) {
@@ -511,6 +519,7 @@ async function forzarSincronizacionNube() {
           const { data, error: insErr } = await supabaseClient.from(t).insert([payload]).select();
           if (!insErr && data && data[0]?.id) {
             item.id = data[0].id;
+            delete item._pending_sync;
             subidos++;
           }
         }
@@ -557,12 +566,17 @@ async function dataInsert(table, record) {
       if (!error && data && data[0]?.id) {
         record.id = data[0].id;
         sincronizadoRemoto = true;
+        delete record._pending_sync;
       } else if (error) {
         console.warn(`Supabase insert en ${table} pendiente de sync:`, error.message);
+        record._pending_sync = true;
       }
     } catch (e) {
       console.warn(`Supabase insert en ${table} diferido (${e.message}), guardado localmente.`);
+      record._pending_sync = true;
     }
+  } else {
+    record._pending_sync = true;
   }
 
   const localList = getLocalTable(table);
