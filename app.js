@@ -433,14 +433,121 @@ async function ejecutarSincronizacionContinua() {
     // Manejar desconexión temporal silenciosamente
   } finally {
     syncHeartbeatRunning = false;
+    actualizarEstadoBotonSync();
+  }
+}
+
+// ================= SINCRONIZACIÓN Y ESTADO EN TIEMPO REAL =================
+let realtimeChannel = null;
+let currentSyncState = "synced";
+
+function hayCambiosPendientesLocales() {
+  const tablas = [
+    "campanas", "parcelas", "variedades", "productos", "compras_productos",
+    "tratamientos", "ventas", "gastos_especificos", "gastos_generales",
+    "ingresos_financieros", "trabajadores", "jornales",
+    "alquileres_parcelas", "alquileres_pagos"
+  ];
+  for (const t of tablas) {
+    const data = getLocalTable(t);
+    if (Array.isArray(data) && data.some(item => item && item._pending_sync === true)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function actualizarEstadoBotonSync(estado) {
+  const btn = document.getElementById("btnSmartSync");
+  const dot = document.getElementById("btnSmartSyncDot");
+  const txt = document.getElementById("btnSmartSyncText");
+  if (!btn || !dot || !txt) return;
+
+  if (!navigator.onLine) {
+    estado = "offline";
+  } else if (!estado) {
+    estado = hayCambiosPendientesLocales() ? "pending" : "synced";
+  }
+  currentSyncState = estado;
+
+  btn.className = "px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 sm:gap-2 text-xs font-bold border shadow-xs active:scale-95";
+  dot.className = "w-2.5 h-2.5 rounded-full";
+
+  switch (estado) {
+    case "syncing":
+      btn.classList.add("bg-sky-50", "text-sky-800", "border-sky-300");
+      dot.classList.add("bg-sky-500", "animate-ping");
+      txt.textContent = "Sincronizando...";
+      btn.title = "Guardando cambios y sincronizando con todos los dispositivos...";
+      break;
+    case "pending":
+      btn.classList.add("bg-amber-50", "text-amber-800", "border-amber-300", "hover:bg-amber-100");
+      dot.classList.add("bg-amber-500", "animate-pulse");
+      txt.textContent = "Guardar cambios";
+      btn.title = "Hay cambios pendientes. Haz clic para guardar y sincronizar con todos los dispositivos.";
+      break;
+    case "offline":
+      btn.classList.add("bg-slate-100", "text-slate-600", "border-slate-300");
+      dot.classList.add("bg-slate-400");
+      txt.textContent = "Sin conexión";
+      btn.title = "Sin conexión a internet. Los datos se guardan en este dispositivo y se subirán al reconectar.";
+      break;
+    case "synced":
+    default:
+      btn.classList.add("bg-emerald-50", "text-emerald-800", "border-emerald-200/80", "hover:bg-emerald-100");
+      dot.classList.add("bg-emerald-500");
+      txt.textContent = "Todo al día";
+      btn.title = "Todo guardado y sincronizado con la nube y otros dispositivos. Clic para forzar actualización.";
+      break;
+  }
+}
+
+function notificarCambioARealtime() {
+  if (realtimeChannel && typeof realtimeChannel.send === 'function') {
+    try {
+      realtimeChannel.send({
+        type: 'broadcast',
+        event: 'fundo-manual-sync',
+        payload: { timestamp: Date.now() }
+      });
+    } catch (err) {}
+  }
+}
+
+async function ejecutarSincronizacionManual() {
+  if (!supabaseClient) {
+    initSupabaseClient();
+  }
+  if (!supabaseClient) {
+    mostrarToast("No hay conexión con la base de datos", "⚠️");
+    actualizarEstadoBotonSync("offline");
+    return;
+  }
+
+  actualizarEstadoBotonSync("syncing");
+  mostrarToast("Guardando y sincronizando con todos tus dispositivos...", "☁️");
+
+  try {
+    await forzarSincronizacionNube(false);
+    notificarCambioARealtime();
+    actualizarEstadoBotonSync("synced");
+    mostrarToast("¡Todo guardado y sincronizado en todos tus dispositivos!", "✅");
+  } catch (e) {
+    console.error("Error en sincronización manual:", e);
+    actualizarEstadoBotonSync();
+    mostrarToast("Error sincronizando. Se reintentará automáticamente.", "⚠️");
   }
 }
 
 function suscribirSupabaseRealtime() {
   if (!supabaseClient || typeof supabaseClient.channel !== 'function') return;
   try {
-    supabaseClient.channel('fundo-sync-realtime')
+    realtimeChannel = supabaseClient.channel('fundo-sync-realtime');
+    realtimeChannel
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        ejecutarSincronizacionContinua();
+      })
+      .on('broadcast', { event: 'fundo-manual-sync' }, () => {
         ejecutarSincronizacionContinua();
       })
       .subscribe();
@@ -450,13 +557,20 @@ function suscribirSupabaseRealtime() {
 }
 
 function iniciarSincronizacionContinua() {
-  // Sincronización continua en segundo plano cada 12 segundos
-  setInterval(ejecutarSincronizacionContinua, 12000);
+  // Sincronización continua en segundo plano cada 8 segundos
+  setInterval(ejecutarSincronizacionContinua, 8000);
 
   // Al volver conexión
   window.addEventListener("online", () => {
-    mostrarToast("Conexión activa. Sincronizando...", "🌐");
-    forzarSincronizacionNube();
+    actualizarEstadoBotonSync("syncing");
+    mostrarToast("Conexión restaurada. Sincronizando con la nube...", "🌐");
+    ejecutarSincronizacionManual();
+  });
+
+  // Al perder conexión
+  window.addEventListener("offline", () => {
+    actualizarEstadoBotonSync("offline");
+    mostrarToast("Modo sin conexión. Guardando localmente.", "📡");
   });
 
   // Al volver a enfocar la app (en móvil o PC)
@@ -467,21 +581,23 @@ function iniciarSincronizacionContinua() {
   });
 
   suscribirSupabaseRealtime();
+  actualizarEstadoBotonSync();
 }
 
-async function forzarSincronizacionNube() {
+async function forzarSincronizacionNube(mostrarMensajes = true) {
   if (!supabaseClient) {
     initSupabaseClient();
   }
   if (!supabaseClient) {
-    mostrarToast("No hay conexión con Supabase", "⚠️");
-    return;
+    if (mostrarMensajes) mostrarToast("No hay conexión con Supabase", "⚠️");
+    return 0;
   }
 
-  mostrarToast("Sincronizando con la nube...", "☁️");
+  if (mostrarMensajes) mostrarToast("Sincronizando con la nube...", "☁️");
 
   const tablas = [
     "campanas",
+    "parcelas",
     "variedades",
     "productos",
     "compras_productos",
@@ -531,14 +647,18 @@ async function forzarSincronizacionNube() {
   }
 
   await cargarTodosLosDatos();
+  actualizarEstadoBotonSync();
 
-  if (tablasConFaltaEsquema.length > 0) {
-    mostrarToast(`Nube activa. Nota: Faltan crear tablas (${tablasConFaltaEsquema.join(', ')}) en Supabase`, "⚠️");
-  } else if (subidos > 0) {
-    mostrarToast(`¡${subidos} registro(s) sincronizados a la nube!`, "☁️");
-  } else {
-    mostrarToast("Todos los datos están sincronizados en la nube", "✅");
+  if (mostrarMensajes) {
+    if (tablasConFaltaEsquema.length > 0) {
+      mostrarToast(`Nube activa. Nota: Faltan crear tablas (${tablasConFaltaEsquema.join(', ')}) en Supabase`, "⚠️");
+    } else if (subidos > 0) {
+      mostrarToast(`¡${subidos} registro(s) sincronizados a la nube!`, "☁️");
+    } else {
+      mostrarToast("Todos los datos están sincronizados en la nube", "✅");
+    }
   }
+  return subidos;
 }
 
 async function dataInsert(table, record) {
@@ -587,6 +707,12 @@ async function dataInsert(table, record) {
     localList.push(record);
   }
   setLocalTable(table, localList);
+  if (!sincronizadoRemoto) {
+    actualizarEstadoBotonSync("pending");
+  } else {
+    notificarCambioARealtime();
+    actualizarEstadoBotonSync();
+  }
   return { success: true, id: record.id, sincronizadoRemoto };
 }
 
@@ -618,6 +744,8 @@ async function dataDelete(table, id, confirmar = true, recargar = true) {
   if (recargar) {
     await actualizarDatos();
   }
+  notificarCambioARealtime();
+  actualizarEstadoBotonSync();
   return true;
 }
 
@@ -646,6 +774,8 @@ async function dataUpdate(table, id, fields) {
     localList[idx] = { ...localList[idx], ...fields, updated_at: new Date().toISOString() };
     setLocalTable(table, localList);
   }
+  notificarCambioARealtime();
+  actualizarEstadoBotonSync();
   return true;
 }
 
@@ -843,6 +973,7 @@ async function cargarTodosLosDatos() {
 
 async function actualizarDatos() {
   await cargarTodosLosDatos();
+  actualizarEstadoBotonSync();
   mostrarToast("Datos actualizados", "🔄");
 }
 
