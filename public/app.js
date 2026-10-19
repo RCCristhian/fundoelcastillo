@@ -1574,16 +1574,16 @@ function abrirModalLotesInsumo(productoId) {
         const subRestante = Math.round(l.cantidad_disponible * l.precio_unitario * 100) / 100;
 
         const tr = document.createElement("tr");
-        tr.className = `${rowClass} border-b border-slate-100`;
+        tr.className = `${rowClass} border-b border-slate-100 transition`;
         tr.innerHTML = `
-          <td class="py-2.5 px-3 font-mono text-[11px] font-semibold">${l.fecha_display}</td>
-          <td class="py-2.5 px-3 text-slate-600 truncate max-w-xs" title="${detalleProv}">${detalleProv || '-'}</td>
-          <td class="py-2.5 px-2 text-right font-mono">${formatNum(l.cantidad_inicial, 2)} ${unidad}</td>
-          <td class="py-2.5 px-2 text-right font-mono text-slate-600">${formatNum(l.cantidad_consumida, 2)} ${unidad}</td>
-          <td class="py-2.5 px-2 text-right font-mono font-bold ${l.cantidad_disponible > 0 ? 'text-emerald-700' : 'text-slate-400'}">${formatNum(l.cantidad_disponible, 2)} ${unidad}</td>
-          <td class="py-2.5 px-2 text-right font-mono text-slate-600">${formatMoney(l.precio_unitario)}</td>
-          <td class="py-2.5 px-3 text-right font-mono font-black ${l.cantidad_disponible > 0 ? 'text-teal-900' : 'text-slate-400'}">${formatMoney(subRestante)}</td>
-          <td class="py-2.5 px-2 text-center whitespace-nowrap">${estadoBadge}</td>
+          <td class="py-2.5 px-3 font-mono text-xs font-semibold whitespace-nowrap">${l.fecha_display}</td>
+          <td class="py-2.5 px-3 text-slate-700 font-medium" title="${detalleProv}">${detalleProv || '-'}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-xs">${formatNum(l.cantidad_inicial, 2)} ${unidad}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-xs text-slate-600">${formatNum(l.cantidad_consumida, 2)} ${unidad}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-xs font-bold ${l.cantidad_disponible > 0 ? 'text-emerald-700' : 'text-slate-400'}">${formatNum(l.cantidad_disponible, 2)} ${unidad}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-xs text-slate-600">${formatMoney(l.precio_unitario)}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-xs font-black ${l.cantidad_disponible > 0 ? 'text-teal-900' : 'text-slate-400'}">${formatMoney(subRestante)}</td>
+          <td class="py-2.5 px-3 text-center whitespace-nowrap">${estadoBadge}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -1598,7 +1598,7 @@ function abrirModalLotesInsumo(productoId) {
       .sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
 
     if (tratProd.length === 0) {
-      consumosList.innerHTML = `<p class="text-slate-400 text-center py-3 italic text-[11px]">Aún no hay aplicaciones en campo registradas para este producto.</p>`;
+      consumosList.innerHTML = `<p class="col-span-full text-slate-400 text-center py-4 italic text-xs">Aún no hay aplicaciones en campo registradas para este insumo.</p>`;
     } else {
       tratProd.forEach(t => {
         extraerInfoTratamiento(t);
@@ -1612,17 +1612,17 @@ function abrirModalLotesInsumo(productoId) {
         }
 
         const el = document.createElement("div");
-        el.className = "flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-[11px] border border-slate-200/70";
+        el.className = "flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl text-xs border border-slate-200/80 transition";
         el.innerHTML = `
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="font-mono text-slate-500 font-semibold">${t.fecha}</span>
-              <span class="font-bold text-slate-800">${varNombre}</span>
-              <span class="text-teal-800 font-bold bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">${formatNum(t.cantidad, 2)} ${unidad}</span>
+          <div class="flex-1 min-w-0 pr-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-mono text-slate-500 font-semibold text-[11px]">${t.fecha}</span>
+              <span class="font-bold text-slate-900">${varNombre}</span>
+              <span class="text-teal-800 font-bold bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200 text-[11px]">${formatNum(t.cantidad, 2)} ${unidad}</span>
             </div>
-            ${lotesUsadosStr ? `<div class="text-[10px] text-amber-900 font-mono mt-0.5">📦 Lotes consumidos: ${lotesUsadosStr}</div>` : ''}
+            ${lotesUsadosStr ? `<div class="text-[11px] text-amber-900 font-mono mt-1">📦 Lotes: ${lotesUsadosStr}</div>` : ''}
           </div>
-          <span class="font-black text-teal-900 font-mono">${formatMoney(t.total)}</span>
+          <span class="font-black text-teal-900 font-mono text-xs whitespace-nowrap">${formatMoney(t.total)}</span>
         `;
         consumosList.appendChild(el);
       });
