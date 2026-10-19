@@ -208,13 +208,47 @@ function limpiarPayloadParaSupabase(table, payload) {
   return p;
 }
 
-// Fusión inteligente no destructiva: Preserva registros nuevos locales y conserva la versión más reciente
+// ================= GESTIÓN DE ELIMINACIONES (TOMBSTONES) =================
+function getDeletedIds(table) {
+  try {
+    const raw = localStorage.getItem(`fundo_deleted_${table}`);
+    return new Set(raw ? JSON.parse(raw).map(String) : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function addDeletedId(table, id) {
+  if (!id) return;
+  try {
+    const set = getDeletedIds(table);
+    set.add(String(id));
+    localStorage.setItem(`fundo_deleted_${table}`, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+function removeDeletedId(table, id) {
+  if (!id) return;
+  try {
+    const set = getDeletedIds(table);
+    set.delete(String(id));
+    localStorage.setItem(`fundo_deleted_${table}`, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+// Fusión inteligente no destructiva: Preserva registros nuevos locales y respeta registros eliminados
 function fusionarDatosRemotoYLocal(table, remoteData, localData) {
+  const deletedSet = getDeletedIds(table);
+
+  // Filtrar registros que fueron eliminados expresamente por el usuario
+  const validRemote = (remoteData || []).filter(r => !deletedSet.has(String(r.id)));
+  const validLocal = (localData || []).filter(l => !deletedSet.has(String(l.id)));
+
   const remoteMap = new Map();
-  (remoteData || []).forEach(r => remoteMap.set(String(r.id), r));
+  validRemote.forEach(r => remoteMap.set(String(r.id), r));
 
   const localMap = new Map();
-  (localData || []).forEach(l => localMap.set(String(l.id), l));
+  validLocal.forEach(l => localMap.set(String(l.id), l));
 
   const combined = [];
   const processed = new Set();
@@ -308,12 +342,20 @@ async function dataFetch(table, selectQuery = "*", orderCol = "id", ascending = 
 
 async function sincronizarTablaPendiente(table, localData) {
   if (!supabaseClient || !Array.isArray(localData) || localData.length === 0) return;
+  const deletedSet = getDeletedIds(table);
   try {
     const { data: remoteData, error: qErr } = await supabaseClient.from(table).select("id");
     if (qErr) return;
 
+    // Si hay registros en Supabase que fueron eliminados localmente, borrarlos de la nube
+    const toDeleteRemote = (remoteData || []).filter(r => deletedSet.has(String(r.id))).map(r => r.id);
+    if (toDeleteRemote.length > 0) {
+      await supabaseClient.from(table).delete().in("id", toDeleteRemote);
+    }
+
     const remoteIds = new Set((remoteData || []).map(r => String(r.id)));
     for (const record of localData) {
+      if (deletedSet.has(String(record.id))) continue;
       if (!remoteIds.has(String(record.id))) {
         const payload = limpiarPayloadParaSupabase(table, record);
         const { data, error } = await supabaseClient.from(table).insert([payload]).select();
@@ -345,6 +387,13 @@ async function ejecutarSincronizacionContinua() {
       const { data: remoteData, error } = await supabaseClient.from(t).select("*");
       if (error || !Array.isArray(remoteData)) continue;
 
+      const deletedSet = getDeletedIds(t);
+      // Limpiar en Supabase registros eliminados localmente
+      const toDeleteRemote = remoteData.filter(r => deletedSet.has(String(r.id))).map(r => r.id);
+      if (toDeleteRemote.length > 0) {
+        await supabaseClient.from(t).delete().in("id", toDeleteRemote);
+      }
+
       const localData = getLocalTable(t);
       const merged = fusionarDatosRemotoYLocal(t, remoteData, localData);
 
@@ -353,9 +402,10 @@ async function ejecutarSincronizacionContinua() {
         huboCambios = true;
       }
 
-      // Si hay elementos locales que no están en Supabase, subirlos
+      // Si hay elementos locales que no están en Supabase ni eliminados, subirlos
       const remoteIds = new Set(remoteData.map(r => String(r.id)));
       for (const locItem of localData) {
+        if (deletedSet.has(String(locItem.id))) continue;
         if (!remoteIds.has(String(locItem.id))) {
           const payload = limpiarPayloadParaSupabase(t, locItem);
           const { data: insData, error: insErr } = await supabaseClient.from(t).insert([payload]).select();
@@ -486,6 +536,7 @@ async function dataInsert(table, record) {
   if (!record.id) {
     record.id = Date.now();
   }
+  removeDeletedId(table, record.id);
   record.updated_at = new Date().toISOString();
 
   let sincronizadoRemoto = false;
@@ -528,23 +579,30 @@ async function dataInsert(table, record) {
 async function dataDelete(table, id, confirmar = true, recargar = true) {
   if (confirmar && !confirm("¿Deseas eliminar este registro?")) return false;
 
+  addDeletedId(table, id);
+
   if (supabaseClient) {
     try {
-      await supabaseClient.from(table).delete().eq("id", id);
+      const numId = Number(id);
+      const queryId = (!isNaN(numId) && numId > 0) ? numId : id;
+      const { error } = await supabaseClient.from(table).delete().eq("id", queryId);
+      if (error) {
+        console.warn(`Supabase delete error en ${table}:`, error.message);
+      }
     } catch (e) {
       console.warn(`Supabase delete error en ${table}:`, e);
     }
   }
 
   const localList = getLocalTable(table);
-  const filtered = localList.filter(item => item.id != id);
+  const filtered = localList.filter(item => String(item.id) !== String(id));
   setLocalTable(table, filtered);
 
   if (confirmar) {
     mostrarToast("Registro eliminado", "🗑️");
   }
   if (recargar) {
-    actualizarDatos();
+    await actualizarDatos();
   }
   return true;
 }
@@ -2054,9 +2112,23 @@ async function eliminarTratamiento(midOrId) {
 
   if (!confirm(msg)) return;
 
+  // Si es una mezcla, borrar en Supabase directamente por el tag de mezcla en notas
+  if (supabaseClient && midOrId && !String(midOrId).startsWith("single_")) {
+    try {
+      await supabaseClient.from("tratamientos").delete().like("notas", `%[mezcla:${midOrId}]%`);
+    } catch (e) {
+      console.warn("Supabase delete mezcla error:", e);
+    }
+  }
+
   for (const it of items) {
     await dataDelete("tratamientos", it.id, false, false);
   }
+
+  // Quitar inmediatamente del estado en memoria para respuesta instantánea
+  const itemIds = new Set(items.map(it => String(it.id)));
+  globalData.tratamientos = (globalData.tratamientos || []).filter(t => !itemIds.has(String(t.id)) && t.mezcla_id !== midOrId);
+  renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
 
   mostrarToast(n > 1 ? `Mezcla (${n} productos) eliminada` : "Tratamiento eliminado", "🗑️");
   await actualizarDatos();
