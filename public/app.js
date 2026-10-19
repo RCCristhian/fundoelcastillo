@@ -378,6 +378,40 @@ async function sincronizarTablaPendiente(table, localData) {
   }
 }
 
+function tablasSonIguales(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  if (a.length === 0) return true;
+
+  const mapB = new Map();
+  for (const item of b) {
+    if (item && item.id !== undefined) mapB.set(String(item.id), item);
+  }
+  if (mapB.size !== a.length) return false;
+
+  for (const itemA of a) {
+    if (!itemA || itemA.id === undefined) return false;
+    const itemB = mapB.get(String(itemA.id));
+    if (!itemB) return false;
+
+    if (itemA.updated_at && itemB.updated_at) {
+      if (itemA.updated_at !== itemB.updated_at) return false;
+      continue;
+    }
+
+    const keysA = Object.keys(itemA);
+    for (const k of keysA) {
+      if (k === "_pending_sync" || k === "created_at" || k === "updated_at") continue;
+      const valA = itemA[k];
+      const valB = itemB[k];
+      if (valA !== valB && String(valA ?? '') !== String(valB ?? '')) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 let syncHeartbeatRunning = false;
 async function ejecutarSincronizacionContinua() {
   if (syncHeartbeatRunning || !supabaseClient || !navigator.onLine) return;
@@ -390,7 +424,7 @@ async function ejecutarSincronizacionContinua() {
       "alquileres_parcelas", "alquileres_pagos"
     ];
 
-    let huboCambios = false;
+    let algunCambioGlobal = false;
     for (const t of tablas) {
       const { data: remoteData, error } = await supabaseClient.from(t).select("*");
       if (error || !Array.isArray(remoteData)) continue;
@@ -405,6 +439,7 @@ async function ejecutarSincronizacionContinua() {
       const localData = getLocalTable(t);
       const merged = fusionarDatosRemotoYLocal(t, remoteData, localData);
 
+      let subidaEnEstaTabla = false;
       // Si hay elementos locales creados offline con _pending_sync === true que no están en Supabase ni eliminados, subirlos
       const remoteIds = new Set(remoteData.map(r => String(r.id)));
       for (const locItem of merged) {
@@ -415,18 +450,19 @@ async function ejecutarSincronizacionContinua() {
           if (!insErr && insData && insData[0]?.id) {
             locItem.id = insData[0].id;
             delete locItem._pending_sync;
-            huboCambios = true;
+            subidaEnEstaTabla = true;
           }
         }
       }
 
-      if (JSON.stringify(merged) !== JSON.stringify(localData) || huboCambios) {
+      const cambioEnTabla = !tablasSonIguales(merged, localData) || subidaEnEstaTabla;
+      if (cambioEnTabla) {
         setLocalTable(t, merged);
-        huboCambios = true;
+        algunCambioGlobal = true;
       }
     }
 
-    if (huboCambios) {
+    if (algunCambioGlobal) {
       await cargarTodosLosDatos();
     }
   } catch (e) {
@@ -1002,6 +1038,7 @@ async function cargarVariedades() {
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
+    const prevVal = el.value;
     el.innerHTML = "";
     if (id === "jornalVariedadId" || id === "geVariedadId") {
       el.innerHTML += `<option value="">-- General / Todo el Campo --</option>`;
@@ -1010,6 +1047,9 @@ async function cargarVariedades() {
       const arbStr = v.num_arboles > 0 ? `${v.num_arboles} árb.` : `sin registrar`;
       el.innerHTML += `<option value="${v.id}">${v.nombre} (${v.especie} - ${arbStr})</option>`;
     });
+    if (prevVal && Array.from(el.options).some(o => String(o.value) === String(prevVal))) {
+      el.value = prevVal;
+    }
   });
 
   const tbody = document.getElementById("adminVariedadesBody");
@@ -1259,11 +1299,15 @@ async function cargarTrabajadores() {
 
   const sel = document.getElementById("jornalTrabajadorId");
   if (sel) {
+    const prevVal = sel.value;
     sel.innerHTML = "";
     res.data.forEach(t => {
       // Mostrar ÚNICAMENTE el nombre del trabajador a la hora de escogerlo
       sel.innerHTML += `<option value="${t.id}" data-costo="${t.costo_hora_defecto}">${t.nombre}</option>`;
     });
+    if (prevVal && Array.from(sel.options).some(o => String(o.value) === String(prevVal))) {
+      sel.value = prevVal;
+    }
   }
 }
 
