@@ -952,13 +952,22 @@ function recalcularStockYValorizacion() {
     p.total_aplicado = totAplicado;
     p.stock_actual = Math.max(0, stockInicial + totComprado - totAplicado);
 
-    // Si tiene compras registradas con precio, actualizar precio de referencia si era 0
+    // Si tiene compras registradas con precio, actualizar precio de referencia al costo unitario más reciente
     if (comprasProd.length > 0) {
-      const conPrecio = comprasProd.filter(c => Number(c.precio_unitario) > 0);
+      const conPrecio = comprasProd.filter(c => Number(c.precio_unitario) > 0 || Number(c.total) > 0)
+        .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0) || (Number(b.id || 0) - Number(a.id || 0)));
       if (conPrecio.length > 0) {
-        const ult = conPrecio[conPrecio.length - 1];
-        if (ult && ult.precio_unitario > 0 && (!p.precio_referencial || p.precio_referencial == 0)) {
-          p.precio_referencial = Number(ult.precio_unitario);
+        const ult = conPrecio[0]; // Compra más reciente
+        let pu = Number(ult.precio_unitario) || 0;
+        const cant = Number(ult.cantidad) || 0;
+        const tot = Number(ult.total) || 0;
+        if (pu > 0 && cant > 1 && Math.abs(pu - tot) < 0.01) {
+          pu = Math.round((tot / cant) * 100) / 100;
+        } else if (pu <= 0 && tot > 0 && cant > 0) {
+          pu = Math.round((tot / cant) * 100) / 100;
+        }
+        if (pu > 0) {
+          p.precio_referencial = pu;
         }
       }
     }
@@ -3083,26 +3092,53 @@ function calcularTotalTratamiento() {
   }
 }
 
-function calcularTotalCompra() {
-  const c = parseFloat(document.getElementById("compraCantidad").value) || 0;
-  const p = parseFloat(document.getElementById("compraPrecioUnitario").value) || 0;
-  document.getElementById("compraTotalCalculado").textContent = formatMoney(c * p);
+function calcularTotalCompra(origen = 'precio') {
+  const cEl = document.getElementById("compraCantidad");
+  const pEl = document.getElementById("compraPrecioUnitario");
+  const totEl = document.getElementById("compraTotalInput");
+
+  const c = parseFloat(String(cEl?.value || "0").replace(',', '.')) || 0;
+
+  if (origen === 'total' && totEl) {
+    const tot = parseFloat(String(totEl.value || "0").replace(',', '.')) || 0;
+    if (c > 0 && tot > 0) {
+      const pu = Math.round((tot / c) * 1000) / 1000;
+      if (pEl) pEl.value = pu;
+    }
+  } else {
+    const p = parseFloat(String(pEl?.value || "0").replace(',', '.')) || 0;
+    const tot = Math.round(c * p * 100) / 100;
+    if (totEl && origen !== 'total') {
+      totEl.value = tot > 0 ? tot : "";
+    }
+  }
 }
 
 function actualizarPrecioInsumo(productoId) {
   const p = globalData.productos.find(item => item.id == productoId);
   if (p) {
     let costoUnitario = Number(p.precio_referencial) || 0;
-    // Si hay compras registradas para este producto, tomar el costo unitario registrado
-    const comprasProd = (globalData.compras || []).filter(c => c.producto_id == productoId && Number(c.precio_unitario) > 0);
+    // Si hay compras registradas para este producto, tomar el costo unitario más reciente
+    const comprasProd = (globalData.compras || [])
+      .filter(c => c.producto_id == productoId && (Number(c.precio_unitario) > 0 || Number(c.total) > 0))
+      .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0) || (Number(b.id || 0) - Number(a.id || 0)));
+
     if (comprasProd.length > 0) {
-      const ult = comprasProd[comprasProd.length - 1];
-      if (ult && Number(ult.precio_unitario) > 0) {
-        costoUnitario = Number(ult.precio_unitario);
+      const ult = comprasProd[0];
+      const cant = Number(ult.cantidad) || 0;
+      const pu = Number(ult.precio_unitario) || 0;
+      const tot = Number(ult.total) || 0;
+      if (pu > 0 && cant > 1 && Math.abs(pu - tot) < 0.01) {
+        costoUnitario = Math.round((tot / cant) * 100) / 100;
+      } else if (pu > 0) {
+        costoUnitario = pu;
+      } else if (tot > 0 && cant > 0) {
+        costoUnitario = Math.round((tot / cant) * 100) / 100;
       }
     }
 
-    document.getElementById("trataPrecioUnitario").value = costoUnitario;
+    const trataPU = document.getElementById("trataPrecioUnitario");
+    if (trataPU) trataPU.value = costoUnitario;
     const info = document.getElementById("trataStockInfo");
     if (info) {
       info.textContent = `Stock en almacén: ${formatNum(p.stock_actual, 1)} ${p.unidad} (Costo en stock: ${formatMoney(costoUnitario)}/${p.unidad})`;
@@ -3285,11 +3321,11 @@ function agregarFilaProductoTratamiento(datosIniciales = null) {
     <div class="grid grid-cols-3 gap-2 pt-1 items-end">
       <div>
         <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Dosis / Cantidad *</label>
-        <input type="number" step="0.01" min="0.001" placeholder="0.00" value="${datosIniciales?.cantidad ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-cantidad" oninput="recalcularTotalesTratamientoModal()" required>
+        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.cantidad ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-cantidad" oninput="recalcularTotalesTratamientoModal()" required>
       </div>
       <div>
         <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Costo Unit. (<span class="monedaLabel">S/.</span>) *</label>
-        <input type="number" step="0.01" min="0" placeholder="0.00" value="${datosIniciales?.precio_unitario ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-precio" oninput="recalcularTotalesTratamientoModal()" required>
+        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.precio_unitario ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-precio" oninput="recalcularTotalesTratamientoModal()" required>
       </div>
       <div class="text-right">
         <span class="block text-slate-500 text-[10px] mb-0.5 font-medium">Subtotal</span>
@@ -3344,10 +3380,25 @@ function onCambioProductoFila(rowId, sobrescribirPrecio = true) {
 
   if (prod) {
     let costoUnitario = Number(prod.precio_referencial) || 0;
-    const comprasProd = (globalData.compras || []).filter(c => c.producto_id == prod.id && Number(c.precio_unitario) > 0);
+    // Buscar compras de este producto ordenadas por fecha/id DESCENDENTE (la más reciente primero)
+    const comprasProd = (globalData.compras || [])
+      .filter(c => c.producto_id == prod.id && (Number(c.precio_unitario) > 0 || Number(c.total) > 0))
+      .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0) || (Number(b.id || 0) - Number(a.id || 0)));
+
     if (comprasProd.length > 0) {
-      const ult = comprasProd[comprasProd.length - 1];
-      if (ult && Number(ult.precio_unitario) > 0) costoUnitario = Number(ult.precio_unitario);
+      const ult = comprasProd[0]; // La compra más reciente
+      const cCant = Number(ult.cantidad) || 0;
+      const cPU = Number(ult.precio_unitario) || 0;
+      const cTot = Number(ult.total) || 0;
+
+      if (cPU > 0 && cCant > 1 && Math.abs(cPU - cTot) < 0.01) {
+        // En caso se haya registrado el total en el campo de precio unitario
+        costoUnitario = Math.round((cTot / cCant) * 100) / 100;
+      } else if (cPU > 0) {
+        costoUnitario = cPU;
+      } else if (cTot > 0 && cCant > 0) {
+        costoUnitario = Math.round((cTot / cCant) * 100) / 100;
+      }
     }
 
     if (sobrescribirPrecio && precInput) {
@@ -3731,6 +3782,7 @@ async function guardarGastoEspecifico(e) {
 function abrirModalCompraInsumo() {
   document.getElementById("formCompraInsumo")?.reset();
   if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = "";
+  if (document.getElementById("compraTotalInput")) document.getElementById("compraTotalInput").value = "";
   const title = document.getElementById("modalCompraInsumoTitle");
   if (title) title.textContent = "Registrar Compra de Insumo";
   const btn = document.getElementById("btnGuardarCompraInsumo");
@@ -3759,6 +3811,9 @@ function abrirModalEditarCompraInsumo(id) {
   document.getElementById("compraProductoId").value = c.producto_id || "";
   document.getElementById("compraCantidad").value = c.cantidad ?? "";
   document.getElementById("compraPrecioUnitario").value = c.precio_unitario ?? "";
+  if (document.getElementById("compraTotalInput")) {
+    document.getElementById("compraTotalInput").value = c.total ?? (Number(c.cantidad || 0) * Number(c.precio_unitario || 0));
+  }
   document.getElementById("compraProveedor").value = c.proveedor || "";
   document.getElementById("compraFactura").value = c.nro_factura || "";
   document.getElementById("compraPagado").checked = !!c.pagado;
@@ -3768,7 +3823,7 @@ function abrirModalEditarCompraInsumo(id) {
   const btn = document.getElementById("btnGuardarCompraInsumo");
   if (btn) btn.textContent = "Actualizar Compra";
 
-  calcularTotalCompra();
+  calcularTotalCompra('precio');
   document.getElementById("modalCompraInsumo")?.showModal();
 }
 
@@ -3777,10 +3832,25 @@ async function guardarCompraInsumo(e) {
   const editId = document.getElementById("compraEditId")?.value;
   const cRaw = document.getElementById("compraCantidad").value || "0";
   const pRaw = document.getElementById("compraPrecioUnitario").value || "0";
-  const c = parseFloat(String(cRaw).replace(',', '.')) || 0;
-  const p = parseFloat(String(pRaw).replace(',', '.')) || 0;
+  const totRaw = document.getElementById("compraTotalInput")?.value || "0";
+  let c = parseFloat(String(cRaw).replace(',', '.')) || 0;
+  let p = parseFloat(String(pRaw).replace(',', '.')) || 0;
+  let tot = parseFloat(String(totRaw).replace(',', '.')) || 0;
   const prodId = parseInt(document.getElementById("compraProductoId").value);
   const prod = globalData.productos.find(pr => pr.id == prodId);
+
+  // Calcular precio unitario o total si alguno falta
+  if (c > 0 && tot > 0 && p <= 0) {
+    p = Math.round((tot / c) * 1000) / 1000;
+  } else if (c > 0 && p > 0 && tot <= 0) {
+    tot = Math.round(c * p * 100) / 100;
+  } else if (c > 1 && Math.abs(p - tot) < 0.01 && tot > 0) {
+    // Si por error se ingresó el total pagado en la casilla de precio unitario
+    p = Math.round((tot / c) * 1000) / 1000;
+  }
+  if (tot <= 0 && c > 0 && p > 0) {
+    tot = Math.round(c * p * 100) / 100;
+  }
 
   const data = {
     fecha: document.getElementById("compraFecha").value,
@@ -3789,7 +3859,7 @@ async function guardarCompraInsumo(e) {
     producto_unidad: prod ? prod.unidad : "Kg/L",
     cantidad: c,
     precio_unitario: p,
-    total: Math.round(c * p * 100) / 100,
+    total: tot,
     proveedor: document.getElementById("compraProveedor").value.trim(),
     nro_factura: document.getElementById("compraFactura").value.trim(),
     pagado: document.getElementById("compraPagado").checked
@@ -3828,6 +3898,7 @@ async function guardarCompraInsumo(e) {
   cerrarDialog("modalCompraInsumo");
   document.getElementById("formCompraInsumo").reset();
   if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = "";
+  if (document.getElementById("compraTotalInput")) document.getElementById("compraTotalInput").value = "";
   initFechasHoy();
   actualizarDatos();
 }

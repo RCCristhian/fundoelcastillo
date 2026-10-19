@@ -10,6 +10,9 @@
   <meta name="apple-mobile-web-app-title" content="El Castillo">
   <meta name="application-name" content="El Castillo">
   <meta name="theme-color" content="#064e3b">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
@@ -1748,17 +1751,23 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Cantidad *</label>
-            <input type="number" step="0.01" id="compraCantidad" oninput="calcularTotalCompra()" required placeholder="Ej: 10" class="w-full px-3 py-2 border rounded-lg">
+            <input type="number" step="any" min="0" id="compraCantidad" oninput="calcularTotalCompra('cantidad')" required placeholder="Ej: 10" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-cyan-500 font-mono">
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Precio Unit. (<span class="monedaLabel">S/.</span>) *</label>
-            <input type="number" step="0.01" id="compraPrecioUnitario" oninput="calcularTotalCompra()" required placeholder="Ej: 35" class="w-full px-3 py-2 border rounded-lg">
+            <input type="number" step="any" min="0" id="compraPrecioUnitario" oninput="calcularTotalCompra('precio')" required placeholder="Ej: 35" class="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-cyan-500 font-mono">
           </div>
         </div>
 
         <div class="p-3 bg-cyan-50 rounded-xl border border-cyan-100 flex items-center justify-between">
-          <span class="font-bold text-cyan-900">Total Compra:</span>
-          <span id="compraTotalCalculado" class="font-black text-cyan-700 text-sm">S/. 0.00</span>
+          <div>
+            <label for="compraTotalInput" class="block font-bold text-cyan-950 text-xs">Total Compra (<span class="monedaLabel">S/.</span>) *</label>
+            <span class="text-[10px] text-cyan-700">Se autocalcula con cantidad y precio</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-bold text-cyan-800 monedaLabel">S/.</span>
+            <input type="number" step="any" min="0" id="compraTotalInput" oninput="calcularTotalCompra('total')" placeholder="0.00" class="w-32 px-2.5 py-1 text-right font-black text-cyan-900 text-xs bg-white border border-cyan-300 rounded-lg focus:ring-1 focus:ring-cyan-500 font-mono">
+          </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -2065,6 +2074,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261018_01"></script>
+  <script src="app.js?v=20261018_220000"></script>
 </body>
 </html>
