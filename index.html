@@ -990,17 +990,33 @@
               <h3 class="text-base sm:text-lg font-bold text-slate-900">Compras de Insumos</h3>
               <p class="text-[11px] sm:text-xs text-slate-500">Ingresan automáticamente al stock del almacén</p>
             </div>
-            <button onclick="abrirModalCompraInsumo()" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-              Registrar Compra
-            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Selector de Ordenamiento por Fecha -->
+              <div class="inline-flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-xl px-2.5 py-1.5 text-xs transition">
+                <span class="text-slate-500 font-medium">Ordenar:</span>
+                <select id="selectOrdenCompras" onchange="toggleOrdenComprasFecha(this.value)" class="bg-transparent font-bold text-slate-700 text-xs focus:outline-none cursor-pointer">
+                  <option value="desc">Fecha: Más recientes primero (Descendente)</option>
+                  <option value="asc">Fecha: Más antiguas primero (Ascendente)</option>
+                </select>
+              </div>
+
+              <button onclick="abrirModalCompraInsumo()" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Registrar Compra
+              </button>
+            </div>
           </div>
 
           <div class="overflow-x-auto mt-3">
             <table class="w-full text-left text-xs text-slate-700">
               <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-100">
                 <tr>
-                  <th class="py-2.5 px-3">Fecha</th>
+                  <th class="py-2.5 px-3 cursor-pointer hover:bg-slate-100 hover:text-slate-900 transition select-none" onclick="toggleOrdenComprasFecha()" title="Clic para ordenar por fecha (Ascendente / Descendente)">
+                    <span class="inline-flex items-center gap-1">
+                      <span>Fecha</span>
+                      <span id="sortComprasFechaIcon" class="text-cyan-700 font-black text-xs">▼</span>
+                    </span>
+                  </th>
                   <th class="py-2.5 px-3">Producto</th>
                   <th class="py-2.5 px-2 text-right">Cantidad</th>
                   <th class="py-2.5 px-3 text-right">Precio Unit.</th>
@@ -2064,6 +2080,86 @@
     </div>
   </dialog>
 
+  <!-- Modal Detalle de Lotes FIFO de un Insumo -->
+  <dialog id="modalLotesInsumo" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-2xl w-[95vw]">
+    <div class="bg-white rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="bg-teal-800 text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+        <div>
+          <h3 id="modalLotesInsumoTitle" class="font-bold text-sm flex items-center gap-1.5">
+            <span>📦</span> Lotes en Almacén (FIFO / PEPS)
+          </h3>
+          <p id="modalLotesInsumoSub" class="text-[11px] text-teal-200 mt-0.5">Control de entradas por compra y salidas por aplicación</p>
+        </div>
+        <button onclick="cerrarDialog('modalLotesInsumo')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <div class="p-5 space-y-4 overflow-y-auto text-xs">
+        <!-- Tarjetas resumen KPI -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div class="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+            <span class="block text-[10px] text-slate-500 font-semibold uppercase">Total Comprado</span>
+            <span id="lotesKpiComprado" class="text-sm font-bold text-slate-800 font-mono">0.00</span>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+            <span class="block text-[10px] text-slate-500 font-semibold uppercase">Total Aplicado</span>
+            <span id="lotesKpiAplicado" class="text-sm font-bold text-slate-800 font-mono">0.00</span>
+          </div>
+          <div class="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl">
+            <span class="block text-[10px] text-emerald-700 font-semibold uppercase">Stock en Almacén</span>
+            <span id="lotesKpiStock" class="text-sm font-black text-emerald-800 font-mono">0.00</span>
+          </div>
+          <div class="bg-teal-50 border border-teal-200 p-2.5 rounded-xl">
+            <span class="block text-[10px] text-teal-700 font-semibold uppercase">Valoración FIFO</span>
+            <span id="lotesKpiValor" class="text-sm font-black text-teal-900 font-mono">S/. 0.00</span>
+          </div>
+        </div>
+
+        <!-- Tabla de Lotes -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+              <span>📋</span> Lotes de Compra (Orden de Salida: Más antiguo primero)
+            </h4>
+            <span class="text-[10px] text-slate-500">PEPS: Primeras entradas, primeras salidas</span>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="py-2 px-3">Fecha Compra</th>
+                  <th class="py-2 px-3">Comprobante / Prov.</th>
+                  <th class="py-2 px-2 text-right">Comprado</th>
+                  <th class="py-2 px-2 text-right">Consumido</th>
+                  <th class="py-2 px-2 text-right">Disponible</th>
+                  <th class="py-2 px-2 text-right">Costo Unit.</th>
+                  <th class="py-2 px-3 text-right">Valor Restante</th>
+                  <th class="py-2 px-2 text-center">Estado</th>
+                </tr>
+              </thead>
+              <tbody id="lotesInsumoTableBody" class="divide-y divide-slate-100 text-[11px]">
+                <!-- Dinámico -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Historial de Consumos por Tratamientos -->
+        <div id="lotesConsumosContainer" class="pt-2 border-t border-slate-100 space-y-2">
+          <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+            <span>🧪</span> Historial de Aplicaciones que usaron este insumo
+          </h4>
+          <div id="lotesConsumosList" class="space-y-1.5 max-h-48 overflow-y-auto">
+            <!-- Dinámico -->
+          </div>
+        </div>
+
+        <div class="pt-2 flex justify-end border-t border-slate-100">
+          <button type="button" onclick="cerrarDialog('modalLotesInsumo')" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Notificación Toast -->
   <div id="toast" class="fixed bottom-20 md:bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
     <div id="toastContent" class="bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-semibold">
@@ -2072,6 +2168,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261018_225800"></script>
+  <script src="app.js?v=20261019_fifo"></script>
 </body>
 </html>

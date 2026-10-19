@@ -136,6 +136,13 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
                     r["valor_stock"] = round(r["stock_actual"] * r["precio_referencial"], 2)
                 self._send_json({"success": True, "data": rows})
 
+            # 4.1 Lotes FIFO de un Producto
+            elif path.startswith("/api/productos/") and path.endswith("/lotes"):
+                parts = path.strip("/").split("/")
+                prod_id = int(parts[2])
+                lotes = self._get_fifo_lots(conn, prod_id)
+                self._send_json({"success": True, "data": lotes})
+
             # 5. Compras de Insumos
             elif path == "/api/compras":
                 cursor.execute("""
@@ -336,13 +343,25 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
                 conn.commit()
                 self._send_json({"success": True, "id": cursor.lastrowid})
 
-            # 5. Nuevo Tratamiento (descuenta de stock_actual)
+            # 5. Nuevo Tratamiento (descuenta de stock_actual con lógica FIFO)
             elif path == "/api/tratamientos":
                 variedad_id = int(body["variedad_id"])
                 producto_id = int(body["producto_id"])
                 cantidad = float(body.get("cantidad", 0))
                 precio_unitario = float(body.get("precio_unitario", 0))
-                total = float(body.get("total", cantidad * precio_unitario))
+                total = float(body.get("total", 0))
+                notas = body.get("notas", "")
+
+                if precio_unitario <= 0 and total > 0 and cantidad > 0:
+                    precio_unitario = round(total / cantidad, 2)
+                elif precio_unitario <= 0 and cantidad > 0:
+                    pu_fifo, tot_fifo, desglose = self._calculate_fifo_cost(conn, producto_id, cantidad)
+                    precio_unitario = pu_fifo
+                    total = tot_fifo
+                    if "[fifo_lotes:" not in notas and desglose:
+                        notas = f"{notas} [fifo_lotes:{urllib.parse.quote(json.dumps(desglose))}]".strip()
+                elif total <= 0:
+                    total = round(cantidad * precio_unitario, 2)
 
                 cursor.execute("""
                 INSERT INTO tratamientos (fecha, variedad_id, producto_id, cantidad, precio_unitario, total, notas)
@@ -354,7 +373,7 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
                     cantidad,
                     precio_unitario,
                     total,
-                    body.get("notas", "")
+                    notas
                 ))
                 # Descontar del stock
                 cursor.execute("""
@@ -672,6 +691,135 @@ class FieldManagerHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"success": False, "error": str(e)}, status=500)
         finally:
             conn.close()
+
+    # ================= MÓDULO DE INVENTARIO FIFO (PEPS) =================
+    def _get_fifo_lots(self, conn, producto_id, exclude_tratamiento_id=None):
+        cursor = conn.cursor()
+        cursor.execute("SELECT stock_anterior, precio_referencial, unidad FROM productos WHERE id = ?", (producto_id,))
+        prod = cursor.fetchone()
+        if not prod:
+            return []
+
+        stock_ant = float(prod["stock_anterior"] or 0)
+        p_ref = float(prod["precio_referencial"] or 0)
+
+        cursor.execute("""
+            SELECT id, fecha, cantidad, precio_unitario, total, proveedor, nro_factura, nro_albaran
+            FROM compras_productos
+            WHERE producto_id = ?
+            ORDER BY fecha ASC, id ASC
+        """, (producto_id,))
+        compras = [dict(c) for c in cursor.fetchall()]
+
+        if exclude_tratamiento_id:
+            cursor.execute("SELECT id, fecha, cantidad FROM tratamientos WHERE producto_id = ? AND id != ? ORDER BY fecha ASC, id ASC", (producto_id, exclude_tratamiento_id))
+        else:
+            cursor.execute("SELECT id, fecha, cantidad FROM tratamientos WHERE producto_id = ? ORDER BY fecha ASC, id ASC", (producto_id,))
+        tratamientos = cursor.fetchall()
+
+        lots = []
+        if stock_ant > 0:
+            lots.append({
+                "lote_id": f"inicial_{producto_id}",
+                "tipo": "inicial",
+                "fecha": "1970-01-01",
+                "fecha_display": "Stock Inicial",
+                "proveedor": "Inventario Inicial",
+                "nro_comprobante": "",
+                "cantidad_inicial": stock_ant,
+                "cantidad_disponible": stock_ant,
+                "precio_unitario": p_ref
+            })
+
+        for c in compras:
+            c_cant = float(c["cantidad"] or 0)
+            if c_cant <= 0:
+                continue
+            c_pu = float(c["precio_unitario"] or 0)
+            c_tot = float(c["total"] or 0)
+            if c_pu <= 0 and c_cant > 0:
+                c_pu = round(c_tot / c_cant, 2)
+            elif c_pu > 0 and c_cant > 1 and abs(c_pu - c_tot) < 0.01:
+                c_pu = round(c_tot / c_cant, 2)
+
+            comp_str = c.get("nro_factura") or c.get("nro_albaran") or ""
+            lots.append({
+                "lote_id": f"compra_{c['id']}",
+                "tipo": "compra",
+                "fecha": c["fecha"],
+                "fecha_display": c["fecha"],
+                "proveedor": c.get("proveedor") or "",
+                "nro_comprobante": comp_str,
+                "cantidad_inicial": c_cant,
+                "cantidad_disponible": c_cant,
+                "precio_unitario": c_pu
+            })
+
+        for t in tratamientos:
+            por_cons = float(t["cantidad"] or 0)
+            for l in lots:
+                if por_cons <= 0:
+                    break
+                if l["cantidad_disponible"] <= 0:
+                    continue
+                take = min(por_cons, l["cantidad_disponible"])
+                l["cantidad_disponible"] = round(l["cantidad_disponible"] - take, 3)
+                por_cons = round(por_cons - take, 3)
+
+        for l in lots:
+            l["cantidad_consumida"] = round(l["cantidad_inicial"] - l["cantidad_disponible"], 3)
+
+        return lots
+
+    def _calculate_fifo_cost(self, conn, producto_id, cantidad, exclude_tratamiento_id=None):
+        lots = self._get_fifo_lots(conn, producto_id, exclude_tratamiento_id)
+        cursor = conn.cursor()
+        cursor.execute("SELECT precio_referencial FROM productos WHERE id = ?", (producto_id,))
+        prod = cursor.fetchone()
+        p_ref = float(prod["precio_referencial"] or 0) if prod else 0.0
+
+        por_asignar = cantidad
+        costo_total = 0.0
+        desglose = []
+
+        for l in lots:
+            if por_asignar <= 0:
+                break
+            if l["cantidad_disponible"] <= 0:
+                continue
+            take = round(min(por_asignar, l["cantidad_disponible"]), 3)
+            sub = round(take * l["precio_unitario"], 2)
+            desglose.append({
+                "lote_id": l["lote_id"],
+                "tipo": l["tipo"],
+                "fecha": l["fecha"],
+                "fecha_display": l["fecha_display"],
+                "proveedor": l["proveedor"],
+                "cantidad": take,
+                "precio_unitario": l["precio_unitario"],
+                "total": sub
+            })
+            costo_total += sub
+            por_asignar = round(por_asignar - take, 3)
+
+        if por_asignar > 0:
+            sub = round(por_asignar * p_ref, 2)
+            desglose.append({
+                "lote_id": "sin_lote",
+                "tipo": "sin_lote",
+                "fecha": "Sin compra",
+                "fecha_display": "Almacén insuficiente",
+                "proveedor": "-",
+                "cantidad": por_asignar,
+                "precio_unitario": p_ref,
+                "total": sub,
+                "insuficiente": True
+            })
+            costo_total += sub
+
+        costo_total = round(costo_total, 2)
+        pu_prom = round(costo_total / cantidad, 2) if cantidad > 0 else 0.0
+        return pu_prom, costo_total, desglose
 
     # ================= CÁLCULO DE DASHBOARD & P&L =================
     def _calculate_dashboard(self, conn):

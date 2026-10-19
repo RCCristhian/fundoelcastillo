@@ -987,6 +987,7 @@ function filtroPorCampana(item) {
 async function cargarTodosLosDatos() {
   await cargarCampanas();
   await Promise.all([
+    cargarProductos(),
     cargarVariedades(),
     cargarParcelas(),
     cargarTrabajadores(),
@@ -1001,9 +1002,10 @@ async function cargarTodosLosDatos() {
     cargarCompras()
   ]);
 
-  // Cargar productos y recalcular inventario valorizado después de tener compras y aplicaciones
-  await cargarProductos();
+  // Recalcular inventario valorizado y sincronizar tablas que dependen de compras y aplicaciones
   recalcularStockYValorizacion();
+  renderTablaInsumos(globalData.productos || []);
+  renderTablaCompras((globalData.compras || []).filter(filtroPorCampana));
   calcularYRenderizarDashboard();
 }
 
@@ -1180,6 +1182,456 @@ function abrirModalEditarParcela(id) {
   document.getElementById("modalParcela")?.showModal();
 }
 
+// ================= GESTIÓN DE LOTES E INVENTARIO FIFO (PEPS) =================
+function extraerInfoTratamiento(t) {
+  if (!t) return { mezcla_id: "", desglose_lotes: null, notas_limpias: "" };
+  if (t.mezcla_id && t.desglose_lotes !== undefined && t.notas_limpias !== undefined) {
+    return { mezcla_id: t.mezcla_id, desglose_lotes: t.desglose_lotes, notas_limpias: t.notas_limpias };
+  }
+  const notas = t.notas || "";
+  const matchMezcla = notas.match(/\[mezcla:([^\]]+)\]/);
+  const mid = matchMezcla ? matchMezcla[1] : (t.mezcla_id || `single_${t.id}`);
+
+  let desglose = null;
+  const matchFifo = notas.match(/\[fifo_lotes:([^\]]+)\]/);
+  if (matchFifo) {
+    try {
+      desglose = JSON.parse(decodeURIComponent(matchFifo[1]));
+    } catch (e) {
+      try { desglose = JSON.parse(matchFifo[1]); } catch(e2) {}
+    }
+  } else {
+    const matchOld = notas.match(/\[lotes:(\{.*?\}|\[.*?\])\]/);
+    if (matchOld) {
+      try { desglose = JSON.parse(matchOld[1]); } catch(e) {}
+    }
+  }
+
+  const limpias = notas
+    .replace(/\[mezcla:[^\]]+\]\s*/g, '')
+    .replace(/\[fifo_lotes:[^\]]+\]\s*/g, '')
+    .replace(/\[lotes:[^\]]+\]\s*/g, '')
+    .trim();
+
+  t.mezcla_id = mid;
+  t.desglose_lotes = desglose;
+  t.notas_limpias = limpias;
+  return { mezcla_id: mid, desglose_lotes: desglose, notas_limpias: limpias };
+}
+
+function extraerInfoMezcla(t) {
+  const info = extraerInfoTratamiento(t);
+  return { mezcla_id: info.mezcla_id, notas_limpias: info.notas_limpias };
+}
+
+function obtenerLotesProducto(productoId, excluirTratamientoIds = []) {
+  const prod = (globalData.productos || []).find(p => p.id == productoId);
+  if (!prod) return [];
+
+  const excluirSet = new Set(
+    (excluirTratamientoIds || []).map(id => String(id))
+  );
+
+  const lotes = [];
+
+  // 1. Inventario inicial si existe
+  const stockInicial = Number(prod.stock_anterior) || 0;
+  if (stockInicial > 0) {
+    lotes.push({
+      lote_id: `inicial_${prod.id}`,
+      compra_id: null,
+      tipo: "inicial",
+      fecha: "1970-01-01",
+      fecha_display: "Stock Inicial",
+      proveedor: "Inventario Inicial",
+      nro_comprobante: "",
+      cantidad_inicial: stockInicial,
+      cantidad_disponible: stockInicial,
+      cantidad_consumida: 0,
+      precio_unitario: Number(prod.precio_referencial) || 0
+    });
+  }
+
+  // 2. Compras registradas ordenadas cronológicamente (FIFO: más antigua primero)
+  const compras = (globalData.compras || [])
+    .filter(c => c.producto_id == productoId)
+    .sort((a, b) => {
+      const fA = a.fecha || "1970-01-01";
+      const fB = b.fecha || "1970-01-01";
+      if (fA !== fB) return fA.localeCompare(fB);
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+
+  compras.forEach(c => {
+    const cant = Number(c.cantidad) || 0;
+    if (cant <= 0) return;
+
+    let pu = Number(c.precio_unitario) || 0;
+    const tot = Number(c.total) || 0;
+    if (pu <= 0 && tot > 0 && cant > 0) {
+      pu = Math.round((tot / cant) * 100) / 100;
+    } else if (pu > 0 && cant > 1 && Math.abs(pu - tot) < 0.01) {
+      pu = Math.round((tot / cant) * 100) / 100;
+    }
+
+    lotes.push({
+      lote_id: `compra_${c.id}`,
+      compra_id: c.id,
+      tipo: "compra",
+      fecha: c.fecha || "1970-01-01",
+      fecha_display: c.fecha || "Sin fecha",
+      proveedor: c.proveedor || "",
+      nro_comprobante: c.nro_factura || c.nro_albaran || "",
+      cantidad_inicial: cant,
+      cantidad_disponible: cant,
+      cantidad_consumida: 0,
+      precio_unitario: pu
+    });
+  });
+
+  // 3. Descontar aplicaciones de tratamientos en orden cronológico (excepto los excluidos)
+  const tratamientos = (globalData.tratamientos || [])
+    .filter(t => {
+      if (t.producto_id != productoId) return false;
+      extraerInfoTratamiento(t);
+      if (excluirSet.has(String(t.id))) return false;
+      if (t.mezcla_id && (excluirSet.has(String(t.mezcla_id)) || excluirSet.has(`single_${t.id}`))) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const fA = a.fecha || "1970-01-01";
+      const fB = b.fecha || "1970-01-01";
+      if (fA !== fB) return fA.localeCompare(fB);
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+
+  tratamientos.forEach(t => {
+    let porConsumir = Number(t.cantidad) || 0;
+    for (const lote of lotes) {
+      if (porConsumir <= 0) break;
+      if (lote.cantidad_disponible <= 0) continue;
+      const tomar = Math.min(porConsumir, lote.cantidad_disponible);
+      lote.cantidad_disponible = Math.round((lote.cantidad_disponible - tomar) * 1000) / 1000;
+      porConsumir = Math.round((porConsumir - tomar) * 1000) / 1000;
+    }
+  });
+
+  lotes.forEach(l => {
+    l.cantidad_consumida = Math.round((l.cantidad_inicial - l.cantidad_disponible) * 1000) / 1000;
+  });
+
+  return lotes;
+}
+
+function calcularConsumoFifo(productoId, cantidadDeseada, excluirTratamientoIds = []) {
+  const prod = (globalData.productos || []).find(p => p.id == productoId);
+  const cantReq = Math.max(0, parseFloat(String(cantidadDeseada || 0).replace(',', '.')) || 0);
+
+  if (!prod) {
+    return {
+      desglose: [],
+      costoTotal: 0,
+      precioUnitarioPromedio: 0,
+      stockDisponible: 0,
+      excedeStock: false,
+      cantidadFaltante: 0,
+      lotes: []
+    };
+  }
+
+  const lotes = obtenerLotesProducto(productoId, excluirTratamientoIds);
+  const stockDisponible = Math.round(lotes.reduce((acc, l) => acc + l.cantidad_disponible, 0) * 1000) / 1000;
+
+  if (cantReq <= 0) {
+    const primerDisp = lotes.find(l => l.cantidad_disponible > 0);
+    const puSugerido = primerDisp ? primerDisp.precio_unitario : (Number(prod.precio_referencial) || 0);
+    return {
+      desglose: [],
+      costoTotal: 0,
+      precioUnitarioPromedio: puSugerido,
+      stockDisponible,
+      excedeStock: false,
+      cantidadFaltante: 0,
+      lotes
+    };
+  }
+
+  let porAsignar = cantReq;
+  const desglose = [];
+  let costoTotal = 0;
+
+  for (const lote of lotes) {
+    if (porAsignar <= 0) break;
+    if (lote.cantidad_disponible <= 0) continue;
+
+    const tomar = Math.round(Math.min(porAsignar, lote.cantidad_disponible) * 1000) / 1000;
+    const subtotal = Math.round(tomar * lote.precio_unitario * 100) / 100;
+
+    desglose.push({
+      lote_id: lote.lote_id,
+      compra_id: lote.compra_id || null,
+      tipo: lote.tipo,
+      fecha: lote.fecha,
+      fecha_display: lote.fecha_display,
+      proveedor: lote.proveedor,
+      nro_comprobante: lote.nro_comprobante,
+      cantidad: tomar,
+      precio_unitario: lote.precio_unitario,
+      total: subtotal
+    });
+
+    costoTotal += subtotal;
+    porAsignar = Math.round((porAsignar - tomar) * 1000) / 1000;
+  }
+
+  let excedeStock = false;
+  let cantidadFaltante = 0;
+  if (porAsignar > 0) {
+    excedeStock = true;
+    cantidadFaltante = porAsignar;
+    const puFallback = Number(prod.precio_referencial) || 0;
+    const subtotal = Math.round(porAsignar * puFallback * 100) / 100;
+    desglose.push({
+      lote_id: "sin_lote",
+      compra_id: null,
+      tipo: "sin_lote",
+      fecha: "Sin compra",
+      fecha_display: "Almacén insuficiente (Sin lote registrado)",
+      proveedor: "-",
+      nro_comprobante: "",
+      cantidad: porAsignar,
+      precio_unitario: puFallback,
+      total: subtotal,
+      insuficiente: true
+    });
+    costoTotal += subtotal;
+  }
+
+  costoTotal = Math.round(costoTotal * 100) / 100;
+  const puPromedio = cantReq > 0 ? Math.round((costoTotal / cantReq) * 100) / 100 : 0;
+
+  return {
+    desglose,
+    costoTotal,
+    precioUnitarioPromedio: puPromedio,
+    stockDisponible,
+    excedeStock,
+    cantidadFaltante,
+    lotes
+  };
+}
+
+function reconstruirDesgloseFifoHistorico() {
+  const prodIds = new Set((globalData.tratamientos || []).map(t => t.producto_id));
+
+  prodIds.forEach(pid => {
+    const tratProd = (globalData.tratamientos || [])
+      .filter(t => t.producto_id == pid)
+      .sort((a, b) => {
+        const fA = a.fecha || "1970-01-01";
+        const fB = b.fecha || "1970-01-01";
+        if (fA !== fB) return fA.localeCompare(fB);
+        return (Number(a.id) || 0) - (Number(b.id) || 0);
+      });
+
+    const prod = (globalData.productos || []).find(p => p.id == pid);
+    if (!prod) return;
+
+    const lotes = [];
+    const stockInicial = Number(prod.stock_anterior) || 0;
+    if (stockInicial > 0) {
+      lotes.push({
+        lote_id: `inicial_${prod.id}`,
+        tipo: "inicial",
+        fecha: "1970-01-01",
+        fecha_display: "Stock Inicial",
+        proveedor: "Inventario Inicial",
+        cantidad_disponible: stockInicial,
+        precio_unitario: Number(prod.precio_referencial) || 0
+      });
+    }
+
+    const compras = (globalData.compras || [])
+      .filter(c => c.producto_id == pid)
+      .sort((a, b) => {
+        const fA = a.fecha || "1970-01-01";
+        const fB = b.fecha || "1970-01-01";
+        if (fA !== fB) return fA.localeCompare(fB);
+        return (Number(a.id) || 0) - (Number(b.id) || 0);
+      });
+
+    compras.forEach(c => {
+      const cant = Number(c.cantidad) || 0;
+      if (cant <= 0) return;
+      let pu = Number(c.precio_unitario) || 0;
+      const tot = Number(c.total) || 0;
+      if (pu <= 0 && tot > 0 && cant > 0) pu = Math.round((tot / cant) * 100) / 100;
+      lotes.push({
+        lote_id: `compra_${c.id}`,
+        tipo: "compra",
+        fecha: c.fecha || "1970-01-01",
+        fecha_display: c.fecha || "Sin fecha",
+        proveedor: c.proveedor || "",
+        nro_comprobante: c.nro_factura || c.nro_albaran || "",
+        cantidad_disponible: cant,
+        precio_unitario: pu
+      });
+    });
+
+    tratProd.forEach(t => {
+      if (t.desglose_lotes && t.desglose_lotes.length > 0) {
+        let porCons = Number(t.cantidad) || 0;
+        for (const l of lotes) {
+          if (porCons <= 0) break;
+          if (l.cantidad_disponible <= 0) continue;
+          const tomar = Math.min(porCons, l.cantidad_disponible);
+          l.cantidad_disponible = Math.round((l.cantidad_disponible - tomar) * 1000) / 1000;
+          porCons = Math.round((porCons - tomar) * 1000) / 1000;
+        }
+      } else {
+        let porCons = Number(t.cantidad) || 0;
+        const desglose = [];
+        for (const l of lotes) {
+          if (porCons <= 0) break;
+          if (l.cantidad_disponible <= 0) continue;
+          const tomar = Math.round(Math.min(porCons, l.cantidad_disponible) * 1000) / 1000;
+          const sub = Math.round(tomar * l.precio_unitario * 100) / 100;
+          desglose.push({
+            lote_id: l.lote_id,
+            tipo: l.tipo,
+            fecha: l.fecha,
+            fecha_display: l.fecha_display,
+            proveedor: l.proveedor,
+            cantidad: tomar,
+            precio_unitario: l.precio_unitario,
+            total: sub
+          });
+          l.cantidad_disponible = Math.round((l.cantidad_disponible - tomar) * 1000) / 1000;
+          porCons = Math.round((porCons - tomar) * 1000) / 1000;
+        }
+        if (desglose.length > 0) {
+          t.desglose_lotes = desglose;
+        }
+      }
+    });
+  });
+}
+
+function abrirModalLotesInsumo(productoId) {
+  const prod = (globalData.productos || []).find(p => p.id == productoId);
+  if (!prod) return;
+
+  const lotes = obtenerLotesProducto(productoId);
+  const unidad = prod.unidad || "Kg/L";
+
+  const modalTitle = document.getElementById("modalLotesInsumoTitle");
+  if (modalTitle) modalTitle.innerHTML = `<span>📦</span> Lotes en Almacén (FIFO): ${prod.nombre}`;
+
+  const subTitle = document.getElementById("modalLotesInsumoSub");
+  if (subTitle) subTitle.textContent = `Unidad: ${unidad} · Control PEPS (Primeras entradas, primeras salidas)`;
+
+  const totComprado = lotes.reduce((acc, l) => acc + l.cantidad_inicial, 0);
+  const totConsumido = lotes.reduce((acc, l) => acc + l.cantidad_consumida, 0);
+  const stockDisp = lotes.reduce((acc, l) => acc + l.cantidad_disponible, 0);
+  const valorTotalFifo = lotes.reduce((acc, l) => acc + (l.cantidad_disponible * l.precio_unitario), 0);
+
+  const kpiComp = document.getElementById("lotesKpiComprado");
+  if (kpiComp) kpiComp.textContent = `${formatNum(totComprado, 2)} ${unidad}`;
+
+  const kpiApli = document.getElementById("lotesKpiAplicado");
+  if (kpiApli) kpiApli.textContent = `${formatNum(totConsumido, 2)} ${unidad}`;
+
+  const kpiStock = document.getElementById("lotesKpiStock");
+  if (kpiStock) kpiStock.textContent = `${formatNum(stockDisp, 2)} ${unidad}`;
+
+  const kpiVal = document.getElementById("lotesKpiValor");
+  if (kpiVal) kpiVal.textContent = formatMoney(valorTotalFifo);
+
+  const tbody = document.getElementById("lotesInsumoTableBody");
+  if (tbody) {
+    tbody.innerHTML = "";
+    if (lotes.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400 italic">No hay compras ni stock inicial registrado para este insumo.</td></tr>`;
+    } else {
+      lotes.forEach(l => {
+        let estadoBadge = "";
+        let rowClass = "hover:bg-slate-50";
+
+        if (l.cantidad_disponible <= 0) {
+          estadoBadge = `<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">🔴 Agotado</span>`;
+          rowClass = "bg-slate-50/60 text-slate-400 hover:bg-slate-100/60";
+        } else if (l.cantidad_consumida > 0) {
+          estadoBadge = `<span class="bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">🟡 Parcial (${formatNum(l.cantidad_disponible, 1)} ${unidad})</span>`;
+          rowClass = "bg-amber-50/30 hover:bg-amber-50/60";
+        } else {
+          estadoBadge = `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">🟢 Disponible</span>`;
+          rowClass = "bg-white hover:bg-emerald-50/30";
+        }
+
+        const compStr = l.nro_comprobante ? `Doc: ${l.nro_comprobante}` : "";
+        const provStr = l.proveedor ? `${l.proveedor}` : (compStr ? "" : "-");
+        const detalleProv = [provStr, compStr].filter(Boolean).join(" · ");
+        const subRestante = Math.round(l.cantidad_disponible * l.precio_unitario * 100) / 100;
+
+        const tr = document.createElement("tr");
+        tr.className = `${rowClass} border-b border-slate-100`;
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-mono text-[11px] font-semibold">${l.fecha_display}</td>
+          <td class="py-2.5 px-3 text-slate-600 truncate max-w-xs" title="${detalleProv}">${detalleProv || '-'}</td>
+          <td class="py-2.5 px-2 text-right font-mono">${formatNum(l.cantidad_inicial, 2)} ${unidad}</td>
+          <td class="py-2.5 px-2 text-right font-mono text-slate-600">${formatNum(l.cantidad_consumida, 2)} ${unidad}</td>
+          <td class="py-2.5 px-2 text-right font-mono font-bold ${l.cantidad_disponible > 0 ? 'text-emerald-700' : 'text-slate-400'}">${formatNum(l.cantidad_disponible, 2)} ${unidad}</td>
+          <td class="py-2.5 px-2 text-right font-mono text-slate-600">${formatMoney(l.precio_unitario)}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-black ${l.cantidad_disponible > 0 ? 'text-teal-900' : 'text-slate-400'}">${formatMoney(subRestante)}</td>
+          <td class="py-2.5 px-2 text-center whitespace-nowrap">${estadoBadge}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+  }
+
+  const consumosList = document.getElementById("lotesConsumosList");
+  if (consumosList) {
+    consumosList.innerHTML = "";
+    const tratProd = (globalData.tratamientos || [])
+      .filter(t => t.producto_id == productoId)
+      .sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+
+    if (tratProd.length === 0) {
+      consumosList.innerHTML = `<p class="text-slate-400 text-center py-3 italic text-[11px]">Aún no hay aplicaciones en campo registradas para este producto.</p>`;
+    } else {
+      tratProd.forEach(t => {
+        extraerInfoTratamiento(t);
+        const varItem = (globalData.variedades || []).find(v => v.id == t.variedad_id);
+        const varNombre = t.variedad_nombre || varItem?.nombre || "Lote";
+        const desglose = t.desglose_lotes || [];
+
+        let lotesUsadosStr = "";
+        if (desglose.length > 0) {
+          lotesUsadosStr = desglose.map(dl => `${formatNum(dl.cantidad, 2)} ${unidad} @ ${formatMoney(dl.precio_unitario)} (${dl.fecha_display || dl.fecha})`).join(" + ");
+        }
+
+        const el = document.createElement("div");
+        el.className = "flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-[11px] border border-slate-200/70";
+        el.innerHTML = `
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-slate-500 font-semibold">${t.fecha}</span>
+              <span class="font-bold text-slate-800">${varNombre}</span>
+              <span class="text-teal-800 font-bold bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">${formatNum(t.cantidad, 2)} ${unidad}</span>
+            </div>
+            ${lotesUsadosStr ? `<div class="text-[10px] text-amber-900 font-mono mt-0.5">📦 Lotes consumidos: ${lotesUsadosStr}</div>` : ''}
+          </div>
+          <span class="font-black text-teal-900 font-mono">${formatMoney(t.total)}</span>
+        `;
+        consumosList.appendChild(el);
+      });
+    }
+  }
+
+  document.getElementById("modalLotesInsumo")?.showModal();
+}
+
 function recalcularStockYValorizacion() {
   let valorTotalAlmacen = 0;
 
@@ -1195,29 +1647,28 @@ function recalcularStockYValorizacion() {
     p.total_aplicado = totAplicado;
     p.stock_actual = Math.max(0, stockInicial + totComprado - totAplicado);
 
-    // Si tiene compras registradas con precio, actualizar precio de referencia al costo unitario más reciente
-    if (comprasProd.length > 0) {
-      const conPrecio = comprasProd.filter(c => Number(c.precio_unitario) > 0 || Number(c.total) > 0)
-        .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0) || (Number(b.id || 0) - Number(a.id || 0)));
-      if (conPrecio.length > 0) {
-        const ult = conPrecio[0]; // Compra más reciente
-        let pu = Number(ult.precio_unitario) || 0;
-        const cant = Number(ult.cantidad) || 0;
-        const tot = Number(ult.total) || 0;
-        if (pu > 0 && cant > 1 && Math.abs(pu - tot) < 0.01) {
-          pu = Math.round((tot / cant) * 100) / 100;
-        } else if (pu <= 0 && tot > 0 && cant > 0) {
-          pu = Math.round((tot / cant) * 100) / 100;
-        }
-        if (pu > 0) {
-          p.precio_referencial = pu;
-        }
+    // Obtener lotes FIFO para valoración exacta
+    const lotes = typeof obtenerLotesProducto === "function" ? obtenerLotesProducto(p.id) : [];
+    let valor = 0;
+    if (lotes && lotes.length > 0) {
+      // Valor FIFO exacto: suma de (cantidad_disponible * precio_unitario) de cada lote restante
+      valor = lotes.reduce((acc, l) => acc + (l.cantidad_disponible * l.precio_unitario), 0);
+      valor = Math.round(valor * 100) / 100;
+
+      // Actualizar precio de referencia al lote activo (el más antiguo disponible para usar)
+      const loteActivo = lotes.find(l => l.cantidad_disponible > 0);
+      if (loteActivo && loteActivo.precio_unitario > 0) {
+        p.precio_referencial = loteActivo.precio_unitario;
       }
+    } else {
+      valor = Math.round((Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0) * 100) / 100;
     }
 
-    const valor = (Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0);
+    p.valor_stock = valor;
     valorTotalAlmacen += valor;
   });
+
+  valorTotalAlmacen = Math.round(valorTotalAlmacen * 100) / 100;
 
   const badge = document.getElementById("badgeValorAlmacen");
   if (badge) badge.textContent = formatMoney(valorTotalAlmacen);
@@ -1248,6 +1699,9 @@ async function cargarProductos() {
   });
 
   renderTablaInsumos(globalData.productos);
+  if (globalData.compras && globalData.compras.length > 0 && typeof renderTablaCompras === "function") {
+    renderTablaCompras(globalData.compras.filter(filtroPorCampana));
+  }
 }
 
 function renderTablaInsumos(productos) {
@@ -1258,7 +1712,7 @@ function renderTablaInsumos(productos) {
   let valorTotalAlmacen = 0;
 
   productos.forEach(p => {
-    const valor = (Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0);
+    const valor = p.valor_stock !== undefined ? p.valor_stock : ((Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0));
     valorTotalAlmacen += valor;
     const stockClass = (Number(p.stock_actual) || 0) <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
 
@@ -1269,10 +1723,16 @@ function renderTablaInsumos(productos) {
       <td class="py-2 px-2 text-slate-500">${p.unidad}</td>
       <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_comprado || 0, 1)}</td>
       <td class="py-2 px-2 text-right text-slate-600">${formatNum(p.total_aplicado || 0, 1)}</td>
-      <td class="py-2 px-3 text-right ${stockClass}">${formatNum(p.stock_actual || 0, 1)}</td>
+      <td class="py-2 px-3 text-right ${stockClass}">
+        <div class="font-bold">${formatNum(p.stock_actual || 0, 1)}</div>
+        <button type="button" onclick="abrirModalLotesInsumo(${p.id})" class="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 hover:text-teal-900 hover:underline transition mt-0.5 cursor-pointer" title="Ver detalle de compras y salidas FIFO">
+          <span>📦</span> Ver Lotes
+        </button>
+      </td>
       <td class="py-2 px-3 text-right text-slate-600">${formatMoney(p.precio_referencial || 0)}</td>
       <td class="py-2 px-3 text-right font-semibold text-slate-900">${formatMoney(valor)}</td>
       <td class="py-2 px-2 text-center whitespace-nowrap space-x-1">
+        <button onclick="abrirModalLotesInsumo(${p.id})" class="text-teal-700 hover:text-teal-900 p-1" title="Ver lotes FIFO">📦</button>
         <button onclick="abrirModalEditarProducto(${p.id})" class="text-blue-600 hover:text-blue-800 p-1" title="Editar insumo">✏️</button>
         <button onclick="dataDelete('productos', ${p.id})" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar">🗑️</button>
       </td>
@@ -2167,27 +2627,16 @@ function renderTablaJornales(lista) {
   });
 }
 
-function extraerInfoMezcla(t) {
-  if (!t) return { mezcla_id: "", notas_limpias: "" };
-  if (t.mezcla_id && t.notas_limpias !== undefined) {
-    return { mezcla_id: t.mezcla_id, notas_limpias: t.notas_limpias };
-  }
-  const notas = t.notas || "";
-  const match = notas.match(/\[mezcla:([^\]]+)\]/);
-  const mid = match ? match[1] : (t.mezcla_id || `single_${t.id}`);
-  const limpias = match ? notas.replace(/\[mezcla:[^\]]+\]\s*/, '').trim() : notas.trim();
-  t.mezcla_id = mid;
-  t.notas_limpias = limpias;
-  return { mezcla_id: mid, notas_limpias: limpias };
-}
-
 async function cargarTratamientos() {
   const res = await dataFetch("tratamientos", "*", "fecha", false);
   if (!res.success) return;
   globalData.tratamientos = (res.data || []).map(t => {
-    extraerInfoMezcla(t);
+    extraerInfoTratamiento(t);
     return t;
   });
+  if (typeof reconstruirDesgloseFifoHistorico === "function") {
+    reconstruirDesgloseFifoHistorico();
+  }
   renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
 }
 
@@ -2204,7 +2653,7 @@ function renderTablaTratamientos(lista) {
   // Agrupar por mezcla_id manteniendo el orden de fecha
   const gruposMap = new Map();
   lista.forEach(t => {
-    extraerInfoMezcla(t);
+    extraerInfoTratamiento(t);
     const mid = t.mezcla_id || `single_${t.id}`;
     if (!gruposMap.has(mid)) {
       gruposMap.set(mid, []);
@@ -2230,15 +2679,57 @@ function renderTablaTratamientos(lista) {
       const prodNombre = it.producto_nombre || prodItem?.nombre || "Insumo";
       const unidad = it.producto_unidad || prodItem?.unidad || "Kg/L";
 
+      const desglose = it.desglose_lotes || [];
+      let desgloseHtml = "";
+      let puHtml = `<span class="font-mono">${formatMoney(it.precio_unitario)}</span>`;
+
+      if (desglose.length > 1) {
+        puHtml = `
+          <div class="font-mono">${formatMoney(it.precio_unitario)}</div>
+          <span class="inline-block text-[9px] font-bold text-amber-800 bg-amber-100/90 px-1 py-0.2 rounded" title="Precio promedio ponderado de ${desglose.length} lotes de compra">prom. ponderado</span>
+        `;
+        const itemsDesglose = desglose.map(dl => {
+          const fLote = dl.fecha_display || dl.fecha || "Compra";
+          const provInfo = dl.proveedor && dl.proveedor !== '-' ? ` · ${dl.proveedor}` : "";
+          return `
+            <div class="flex items-center justify-between text-[10px] gap-2 py-0.5 px-2 bg-white/90 rounded border border-amber-200/60 font-mono">
+              <span class="text-slate-700">• <strong>${formatNum(dl.cantidad, 2)} ${unidad}</strong> @ ${formatMoney(dl.precio_unitario)} <span class="text-slate-400 font-sans text-[9px]">(${fLote}${provInfo})</span></span>
+              <span class="font-bold text-amber-950">${formatMoney(dl.total)}</span>
+            </div>
+          `;
+        }).join("");
+
+        desgloseHtml = `
+          <div class="mt-1.5 p-2 bg-amber-50/80 rounded-xl border border-amber-200 text-xs space-y-1">
+            <div class="font-bold text-[10px] text-amber-900 flex items-center justify-between">
+              <span class="flex items-center gap-1"><span>📦</span> Desglose por compras utilizadas (FIFO):</span>
+              <span class="text-amber-800 font-mono text-[9px] bg-amber-200/70 px-1.5 py-0.2 rounded font-bold">${desglose.length} compras</span>
+            </div>
+            <div class="space-y-0.5">
+              ${itemsDesglose}
+            </div>
+          </div>
+        `;
+      } else if (desglose.length === 1 && desglose[0].fecha_display && desglose[0].fecha_display !== "Sin fecha") {
+        desgloseHtml = `
+          <div class="text-[10px] text-slate-500 mt-0.5 font-mono flex items-center gap-1">
+            <span>📦 Lote compra:</span> <span>${desglose[0].fecha_display}</span>
+          </div>
+        `;
+      }
+
       tr.innerHTML = `
-        <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">${fecha}</td>
-        <td class="py-2.5 px-3 font-bold text-slate-900">${varNombre}</td>
-        <td class="py-2.5 px-3 font-semibold text-teal-800">${prodNombre}</td>
-        <td class="py-2.5 px-3 text-right font-medium whitespace-nowrap">${formatNum(it.cantidad, 2)} ${unidad}</td>
-        <td class="py-2.5 px-3 text-right text-slate-600 whitespace-nowrap">${formatMoney(it.precio_unitario)}</td>
-        <td class="py-2.5 px-3 text-right font-black text-teal-700 whitespace-nowrap">${formatMoney(it.total)}</td>
-        <td class="py-2.5 px-3 text-slate-500 max-w-xs truncate" title="${notas}">${notas}</td>
-        <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1">
+        <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap align-top">${fecha}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-900 align-top">${varNombre}</td>
+        <td class="py-2.5 px-3 align-top">
+          <div class="font-semibold text-teal-800">${prodNombre}</div>
+          ${desgloseHtml}
+        </td>
+        <td class="py-2.5 px-3 text-right font-medium whitespace-nowrap align-top">${formatNum(it.cantidad, 2)} ${unidad}</td>
+        <td class="py-2.5 px-3 text-right text-slate-600 whitespace-nowrap align-top">${puHtml}</td>
+        <td class="py-2.5 px-3 text-right font-black text-teal-700 whitespace-nowrap align-top">${formatMoney(it.total)}</td>
+        <td class="py-2.5 px-3 text-slate-500 max-w-xs truncate align-top" title="${notas}">${notas}</td>
+        <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-1 align-top">
           <button onclick="abrirModalEditarTratamiento('${mid}')" class="text-blue-600 hover:text-blue-800 p-1" title="Editar aplicación">✏️</button>
           <button onclick="eliminarTratamiento('${mid}')" class="text-rose-600 hover:text-rose-800 p-1" title="Eliminar aplicación">🗑️</button>
         </td>
@@ -2249,10 +2740,31 @@ function renderTablaTratamientos(lista) {
         const pItem = globalData.productos.find(p => p.id == it.producto_id);
         const pNombre = it.producto_nombre || pItem?.nombre || "Insumo";
         const pUnidad = it.producto_unidad || pItem?.unidad || "Kg/L";
+        const desglose = it.desglose_lotes || [];
+
+        let subLotesHtml = "";
+        if (desglose.length > 1) {
+          subLotesHtml = `
+            <div class="mt-1 pl-2 border-l-2 border-amber-300 space-y-0.5">
+              ${desglose.map(dl => `
+                <div class="text-[9px] text-amber-900 font-mono flex items-center justify-between">
+                  <span>↳ ${formatNum(dl.cantidad, 2)} ${pUnidad} @ ${formatMoney(dl.precio_unitario)} (${dl.fecha_display || dl.fecha})</span>
+                  <span class="font-bold">${formatMoney(dl.total)}</span>
+                </div>
+              `).join("")}
+            </div>
+          `;
+        }
+
         return `
-          <div class="flex items-center justify-between text-[11px] gap-2 py-0.5">
-            <span class="font-medium text-slate-800">• ${pNombre}</span>
-            <span class="text-slate-500 font-mono text-[10px] whitespace-nowrap">${formatNum(it.cantidad, 2)} ${pUnidad} × ${formatMoney(it.precio_unitario)} = <strong class="text-teal-700 font-semibold">${formatMoney(it.total)}</strong></span>
+          <div class="text-[11px] py-1 border-b border-teal-100/50 last:border-0">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-medium text-slate-800">• ${pNombre}</span>
+              <span class="text-slate-500 font-mono text-[10px] whitespace-nowrap">
+                ${formatNum(it.cantidad, 2)} ${pUnidad} × ${formatMoney(it.precio_unitario)} = <strong class="text-teal-700 font-semibold">${formatMoney(it.total)}</strong>
+              </span>
+            </div>
+            ${subLotesHtml}
           </div>
         `;
       }).join("");
@@ -2323,6 +2835,33 @@ async function eliminarTratamiento(midOrId) {
   await actualizarDatos();
 }
 
+// ================= HISTORIAL Y GESTIÓN DE COMPRAS =================
+let ordenComprasFecha = 'desc'; // 'desc' (más recientes primero) o 'asc' (más antiguas primero)
+
+function toggleOrdenComprasFecha(nuevoOrden = null) {
+  if (nuevoOrden === 'asc' || nuevoOrden === 'desc') {
+    ordenComprasFecha = nuevoOrden;
+  } else {
+    ordenComprasFecha = (ordenComprasFecha === 'desc') ? 'asc' : 'desc';
+  }
+
+  // Sincronizar selector dropdown si existe
+  const select = document.getElementById("selectOrdenCompras");
+  if (select && select.value !== ordenComprasFecha) {
+    select.value = ordenComprasFecha;
+  }
+
+  // Sincronizar icono en la cabecera de la tabla
+  const iconEl = document.getElementById("sortComprasFechaIcon");
+  if (iconEl) {
+    iconEl.textContent = ordenComprasFecha === 'asc' ? '▲' : '▼';
+    iconEl.title = ordenComprasFecha === 'asc' ? 'Orden: Más antiguas primero (Ascendente)' : 'Orden: Más recientes primero (Descendente)';
+  }
+
+  renderTablaCompras((globalData.compras || []).filter(filtroPorCampana));
+}
+window.toggleOrdenComprasFecha = toggleOrdenComprasFecha;
+
 async function cargarCompras() {
   const res = await dataFetch("compras_productos", "*", "fecha", false);
   if (!res.success) return;
@@ -2335,15 +2874,48 @@ function renderTablaCompras(lista) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  lista.forEach(c => {
-    const prod = globalData.productos.find(p => p.id == c.producto_id);
-    const prodNombre = c.producto_nombre || prod?.nombre || "Producto";
-    const unidad = c.producto_unidad || prod?.unidad || "Kg/L";
+  const comprasList = Array.isArray(lista) ? [...lista] : [];
+
+  // Ordenar cronológicamente por fecha según ordenComprasFecha
+  comprasList.sort((a, b) => {
+    const fA = String(a.fecha || "");
+    const fB = String(b.fecha || "");
+    const idA = Number(a.id) || 0;
+    const idB = Number(b.id) || 0;
+
+    if (fA !== fB) {
+      return ordenComprasFecha === 'asc' ? fA.localeCompare(fB) : fB.localeCompare(fA);
+    }
+    return ordenComprasFecha === 'asc' ? (idA - idB) : (idB - idA);
+  });
+
+  if (comprasList.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="py-8 text-center text-slate-400">
+          <div class="text-2xl mb-1">🛒</div>
+          <div>No hay compras registradas en esta campaña</div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  comprasList.forEach(c => {
+    const prod = (globalData.productos || []).find(p => String(p.id) === String(c.producto_id));
+    const prodNombre = prod?.nombre || c.producto_nombre || (c.producto_id ? `Insumo #${c.producto_id}` : "Producto");
+    const unidad = prod?.unidad || c.producto_unidad || "Kg/L";
+
+    // Enriquecer en memoria si prod existe
+    if (prod && !c.producto_nombre) {
+      c.producto_nombre = prod.nombre;
+      c.producto_unidad = prod.unidad;
+    }
 
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
     tr.innerHTML = `
-      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${c.fecha}</td>
+      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600">${c.fecha || '-'}</td>
       <td class="py-2.5 px-3 font-bold text-slate-900">${prodNombre}</td>
       <td class="py-2.5 px-2 text-right font-semibold">${c.cantidad} ${unidad}</td>
       <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(c.precio_unitario)}</td>
@@ -3582,24 +4154,25 @@ function agregarFilaProductoTratamiento(datosIniciales = null) {
     <div class="grid grid-cols-3 gap-2 pt-1 items-end">
       <div>
         <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Dosis / Cantidad *</label>
-        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.cantidad ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-cantidad" oninput="recalcularTotalesTratamientoModal()" required>
+        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.cantidad ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-cantidad" oninput="onInputCantidadFila('${rowId}')" required>
       </div>
       <div>
         <label class="block font-semibold text-slate-600 text-[10px] mb-0.5">Costo Unit. (<span class="monedaLabel">S/.</span>) *</label>
-        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.precio_unitario ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-precio" oninput="recalcularTotalesTratamientoModal()" required>
+        <input type="number" step="any" min="0" placeholder="0.00" value="${datosIniciales?.precio_unitario ?? ''}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-teal-500 font-mono trata-input-precio" oninput="onInputPrecioManual('${rowId}')" required>
       </div>
       <div class="text-right">
         <span class="block text-slate-500 text-[10px] mb-0.5 font-medium">Subtotal</span>
         <span id="${rowId}_subtotal" class="font-black text-teal-800 text-xs block py-1.5 font-mono">S/. 0.00</span>
       </div>
     </div>
+
+    <!-- Contenedor dinámico de desglose FIFO -->
+    <div id="${rowId}_fifoContainer"></div>
   `;
 
   container.appendChild(row);
   renumerarFilasTratamiento();
-  if (datosIniciales) {
-    onCambioProductoFila(rowId, false);
-  }
+  actualizarFifoFila(rowId, !datosIniciales);
   recalcularTotalesTratamientoModal();
 }
 
@@ -3627,57 +4200,189 @@ function renumerarFilasTratamiento() {
   });
 }
 
+function onInputCantidadFila(rowId) {
+  actualizarFifoFila(rowId, true);
+}
+
+function onInputPrecioManual(rowId) {
+  actualizarFifoFila(rowId, false);
+}
+
 function onCambioProductoFila(rowId, sobrescribirPrecio = true) {
+  actualizarFifoFila(rowId, sobrescribirPrecio);
+}
+
+function actualizarFifoFila(rowId, sobrescribirPrecio = true) {
   const row = document.getElementById(rowId);
   if (!row) return;
 
   const select = row.querySelector(".trata-input-producto");
+  const cantInput = row.querySelector(".trata-input-cantidad");
+  const precInput = row.querySelector(".trata-input-precio");
+  const subtotalEl = document.getElementById(`${rowId}_subtotal`);
+  const stockInfo = document.getElementById(`${rowId}_stockInfo`);
+  const unidadBadge = document.getElementById(`${rowId}_unidadBadge`);
+  const fifoContainer = document.getElementById(`${rowId}_fifoContainer`);
+
   const prodId = parseInt(select?.value);
   const prod = (globalData.productos || []).find(p => p.id == prodId);
 
-  const stockInfo = document.getElementById(`${rowId}_stockInfo`);
-  const unidadBadge = document.getElementById(`${rowId}_unidadBadge`);
-  const precInput = row.querySelector(".trata-input-precio");
-
-  if (prod) {
-    let costoUnitario = Number(prod.precio_referencial) || 0;
-    // Buscar compras de este producto ordenadas por fecha/id DESCENDENTE (la más reciente primero)
-    const comprasProd = (globalData.compras || [])
-      .filter(c => c.producto_id == prod.id && (Number(c.precio_unitario) > 0 || Number(c.total) > 0))
-      .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0) || (Number(b.id || 0) - Number(a.id || 0)));
-
-    if (comprasProd.length > 0) {
-      const ult = comprasProd[0]; // La compra más reciente
-      const cCant = Number(ult.cantidad) || 0;
-      const cPU = Number(ult.precio_unitario) || 0;
-      const cTot = Number(ult.total) || 0;
-
-      if (cPU > 0 && cCant > 1 && Math.abs(cPU - cTot) < 0.01) {
-        // En caso se haya registrado el total en el campo de precio unitario
-        costoUnitario = Math.round((cTot / cCant) * 100) / 100;
-      } else if (cPU > 0) {
-        costoUnitario = cPU;
-      } else if (cTot > 0 && cCant > 0) {
-        costoUnitario = Math.round((cTot / cCant) * 100) / 100;
-      }
-    }
-
-    if (sobrescribirPrecio && precInput) {
-      precInput.value = costoUnitario;
-    }
-
-    if (stockInfo) {
-      const stockNum = Number(prod.stock_actual) || 0;
-      const stockColor = stockNum <= 0 ? "text-rose-600 font-bold" : "text-slate-600 font-semibold";
-      stockInfo.innerHTML = `Stock en almacén: <span class="${stockColor}">${formatNum(stockNum, 1)} ${prod.unidad || 'Kg/L'}</span>`;
-    }
-    if (unidadBadge) {
-      unidadBadge.textContent = prod.unidad || "Kg/L";
-    }
-  } else {
+  if (!prod) {
     if (stockInfo) stockInfo.textContent = "Stock disponible: -";
     if (unidadBadge) unidadBadge.textContent = "";
     if (sobrescribirPrecio && precInput) precInput.value = "";
+    if (subtotalEl) subtotalEl.textContent = formatMoney(0);
+    if (fifoContainer) fifoContainer.innerHTML = "";
+    row.dataset.fifoDesglose = "";
+    row.dataset.fifoTotal = "0";
+    recalcularTotalesTratamientoModal();
+    return;
+  }
+
+  const unidad = prod.unidad || "Kg/L";
+  if (unidadBadge) unidadBadge.textContent = unidad;
+
+  // Obtener IDs de tratamientos a excluir (los que se están editando actualmente)
+  const editMezclaId = document.getElementById("trataEditMezclaId")?.value;
+  const editId = document.getElementById("trataEditId")?.value;
+  const recordId = row.dataset.recordId;
+  const excluirIds = [editMezclaId, editId, recordId].filter(Boolean);
+
+  const cantVal = parseFloat(String(cantInput?.value || "0").replace(',', '.')) || 0;
+  const fifo = calcularConsumoFifo(prod.id, cantVal, excluirIds);
+
+  // Actualizar indicador de stock disponible en almacén
+  if (stockInfo) {
+    const stockColor = fifo.stockDisponible <= 0 ? "text-rose-600 font-bold" : "text-emerald-700 font-bold";
+    stockInfo.innerHTML = `Stock en almacén: <span class="${stockColor}">${formatNum(fifo.stockDisponible, 2)} ${unidad}</span>`;
+  }
+
+  // Si sobrescribirPrecio es true o si el precio está vacío / en cero
+  if (sobrescribirPrecio || !precInput.value || parseFloat(precInput.value) <= 0) {
+    if (cantVal > 0) {
+      precInput.value = fifo.precioUnitarioPromedio;
+    } else {
+      const primerDisp = fifo.lotes.find(l => l.cantidad_disponible > 0);
+      precInput.value = primerDisp ? primerDisp.precio_unitario : (Number(prod.precio_referencial) || 0);
+    }
+  }
+
+  const p = parseFloat(String(precInput?.value || "0").replace(',', '.')) || 0;
+  let sub = Math.round(cantVal * p * 100) / 100;
+  if (cantVal > 0 && Math.abs(p - fifo.precioUnitarioPromedio) < 0.01) {
+    sub = fifo.costoTotal;
+  }
+  if (subtotalEl) subtotalEl.textContent = formatMoney(sub);
+
+  row.dataset.fifoDesglose = JSON.stringify(fifo.desglose);
+  row.dataset.fifoTotal = sub;
+
+  // Renderizar el contenedor de desglose FIFO en el modal
+  if (fifoContainer) {
+    if (cantVal <= 0) {
+      const lotesDisp = fifo.lotes.filter(l => l.cantidad_disponible > 0);
+      if (lotesDisp.length === 0) {
+        fifoContainer.innerHTML = `
+          <div class="mt-1.5 p-2 bg-slate-100 rounded-lg text-[10px] text-slate-500 italic">
+            Sin compras o existencias previas en almacén. Se usará precio referencial (${formatMoney(prod.precio_referencial)}).
+          </div>
+        `;
+      } else {
+        const previewLotes = lotesDisp.map(l => `
+          <span class="inline-flex items-center gap-1 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+            <strong>${formatNum(l.cantidad_disponible, 2)} ${unidad}</strong> @ ${formatMoney(l.precio_unitario)} <span class="text-slate-400 font-sans">(${l.fecha_display})</span>
+          </span>
+        `).join(" ");
+
+        fifoContainer.innerHTML = `
+          <div class="mt-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200 text-[10px] text-slate-600 space-y-1">
+            <span class="font-semibold block text-slate-700">📦 Lotes disponibles en almacén (FIFO - Se usará primero el más antiguo):</span>
+            <div class="flex flex-wrap gap-1 font-mono">
+              ${previewLotes}
+            </div>
+          </div>
+        `;
+      }
+    } else if (fifo.desglose.length > 1) {
+      // Múltiples compras utilizadas
+      const filasDesglose = fifo.desglose.map(dl => {
+        const fLote = dl.fecha_display || dl.fecha;
+        const provStr = dl.proveedor && dl.proveedor !== '-' ? ` · ${dl.proveedor}` : '';
+        const esInsuf = dl.insuficiente;
+        const badgeColor = esInsuf ? "bg-rose-100 text-rose-800 border-rose-300" : "bg-white text-slate-800 border-amber-200";
+        return `
+          <div class="flex items-center justify-between p-1.5 rounded-lg border ${badgeColor} font-mono text-[11px]">
+            <div class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full ${esInsuf ? 'bg-rose-500' : 'bg-emerald-500'}"></span>
+              <span class="font-bold">• ${formatNum(dl.cantidad, 2)} ${unidad}</span>
+              <span class="text-slate-500 text-[10px] font-sans">(${fLote}${provStr} @ ${formatMoney(dl.precio_unitario)})</span>
+            </div>
+            <span class="font-bold text-teal-900">${formatMoney(dl.total)}</span>
+          </div>
+        `;
+      }).join("");
+
+      let notaQuedara = "";
+      const ultimoLoteConsumido = fifo.desglose[fifo.desglose.length - 1];
+      if (ultimoLoteConsumido && !ultimoLoteConsumido.insuficiente) {
+        const loteOrig = fifo.lotes.find(l => l.lote_id === ultimoLoteConsumido.lote_id);
+        if (loteOrig) {
+          const rem = Math.round((loteOrig.cantidad_disponible - ultimoLoteConsumido.cantidad) * 1000) / 1000;
+          if (rem > 0) {
+            notaQuedara = `💡 Quedará en almacén: <strong>${formatNum(rem, 2)} ${unidad}</strong> de la compra del ${loteOrig.fecha_display} (@ ${formatMoney(loteOrig.precio_unitario)})`;
+          } else {
+            notaQuedara = `💡 Los lotes utilizados quedarán completamente agotados (0.00 ${unidad}).`;
+          }
+        }
+      }
+
+      fifoContainer.innerHTML = `
+        <div class="mt-2 p-2.5 rounded-xl border bg-amber-50/90 border-amber-200 text-xs space-y-1.5 shadow-2xs">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-[11px] text-amber-950 flex items-center gap-1">
+              <span>📦</span> Consumo dividido por compras (FIFO):
+            </span>
+            <span class="bg-amber-200/80 text-amber-900 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full">
+              ${fifo.desglose.length} compras aplicadas
+            </span>
+          </div>
+          <div class="space-y-1">
+            ${filasDesglose}
+          </div>
+          ${fifo.excedeStock ? `
+            <div class="p-1.5 bg-rose-100 text-rose-800 rounded-lg text-[10px] font-bold flex items-center gap-1">
+              <span>⚠️</span> Almacén solo cuenta con ${formatNum(fifo.stockDisponible, 2)} ${unidad}. Faltan ${formatNum(fifo.cantidadFaltante, 2)} ${unidad} de compras registradas.
+            </div>
+          ` : ''}
+          <div class="flex items-center justify-between text-[10px] text-slate-600 pt-0.5 border-t border-amber-200 font-sans">
+            <span>${notaQuedara}</span>
+            <span class="font-bold text-amber-950 font-mono">Promedio: ${formatMoney(fifo.precioUnitarioPromedio)} / ${unidad}</span>
+          </div>
+        </div>
+      `;
+    } else if (fifo.desglose.length === 1) {
+      const dl = fifo.desglose[0];
+      const fLote = dl.fecha_display || dl.fecha;
+      const loteOrig = fifo.lotes.find(l => l.lote_id === dl.lote_id);
+      let remStr = "";
+      if (loteOrig) {
+        const rem = Math.round((loteOrig.cantidad_disponible - dl.cantidad) * 1000) / 1000;
+        remStr = ` · Quedará de esta compra: ${formatNum(rem, 2)} ${unidad}`;
+      }
+
+      fifoContainer.innerHTML = `
+        <div class="mt-1.5 p-2 rounded-xl border bg-emerald-50/80 border-emerald-200 text-xs flex items-center justify-between">
+          <div class="flex items-center gap-1.5 text-[11px] text-emerald-950">
+            <span>📦</span>
+            <span class="font-semibold">Lote FIFO (Más antiguo):</span>
+            <span class="text-slate-600 font-mono text-[10px]">${fLote} @ ${formatMoney(dl.precio_unitario)}${remStr}</span>
+          </div>
+          <span class="font-bold text-emerald-900 font-mono text-[11px]">${formatMoney(dl.total)}</span>
+        </div>
+      `;
+    } else {
+      fifoContainer.innerHTML = "";
+    }
   }
 
   recalcularTotalesTratamientoModal();
@@ -3697,7 +4402,11 @@ function recalcularTotalesTratamientoModal() {
 
     const c = parseFloat(String(cantInput?.value || "0").replace(',', '.')) || 0;
     const p = parseFloat(String(precInput?.value || "0").replace(',', '.')) || 0;
-    const sub = Math.round(c * p * 100) / 100;
+
+    let sub = Math.round(c * p * 100) / 100;
+    if (f.dataset.fifoTotal && Math.abs(sub - Number(f.dataset.fifoTotal)) < 0.05) {
+      sub = Number(f.dataset.fifoTotal);
+    }
     totalMezcla += sub;
 
     if (subtotalEl) subtotalEl.textContent = formatMoney(sub);
@@ -3754,7 +4463,7 @@ function abrirModalTratamiento() {
 
 function abrirModalEditarTratamiento(midOrId) {
   const items = (globalData.tratamientos || []).filter(t => {
-    extraerInfoMezcla(t);
+    extraerInfoTratamiento(t);
     return t.mezcla_id == midOrId || t.id == midOrId || `single_${t.id}` == midOrId;
   });
   if (!items || items.length === 0) return;
@@ -3826,6 +4535,9 @@ async function guardarTratamiento(e) {
     return;
   }
 
+  const editId = document.getElementById("trataEditId")?.value;
+  const excluirIds = [editMezclaId, editId].filter(Boolean);
+
   const itemsGuardar = [];
   for (const f of filas) {
     const prodSelect = f.querySelector(".trata-input-producto");
@@ -3848,6 +4560,25 @@ async function guardarTratamiento(e) {
       return;
     }
 
+    // Calcular desglose FIFO
+    const fifo = calcularConsumoFifo(prodId, c, [...excluirIds, existingRecId].filter(Boolean));
+    let sub = Math.round(c * p * 100) / 100;
+    let desgloseParaGuardar = fifo.desglose;
+
+    if (Math.abs(p - fifo.precioUnitarioPromedio) < 0.01) {
+      sub = fifo.costoTotal;
+    } else {
+      desgloseParaGuardar = [{
+        lote_id: "manual",
+        tipo: "manual",
+        fecha: fecha,
+        fecha_display: "Precio manual",
+        cantidad: c,
+        precio_unitario: p,
+        total: sub
+      }];
+    }
+
     const prod = globalData.productos.find(pr => pr.id == prodId);
     itemsGuardar.push({
       existingRecId,
@@ -3855,7 +4586,8 @@ async function guardarTratamiento(e) {
       prod,
       cantidad: c,
       precio_unitario: p,
-      total: Math.round(c * p * 100) / 100
+      total: sub,
+      fifoDesglose: desgloseParaGuardar
     });
   }
 
@@ -3865,13 +4597,10 @@ async function guardarTratamiento(e) {
     mezclaId = "mz_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
   }
 
-  // Guardar tag de mezcla en notas para trazabilidad y agrupamiento sin romper columnas Supabase
-  const notasFinal = `[mezcla:${mezclaId}] ${notasBase}`.trim();
-
   // Guardar o actualizar
   if (editMezclaId) {
     const viejosRegistros = (globalData.tratamientos || []).filter(t => {
-      extraerInfoMezcla(t);
+      extraerInfoTratamiento(t);
       return t.mezcla_id == editMezclaId || t.id == editMezclaId || `single_${t.id}` == editMezclaId;
     });
     const idsConservados = new Set(itemsGuardar.filter(i => i.existingRecId).map(i => i.existingRecId));
@@ -3885,6 +4614,11 @@ async function guardarTratamiento(e) {
 
     // 2. Actualizar las conservadas o insertar nuevas
     for (const item of itemsGuardar) {
+      const lotesTag = item.fifoDesglose && item.fifoDesglose.length > 0
+        ? `[fifo_lotes:${encodeURIComponent(JSON.stringify(item.fifoDesglose))}] `
+        : "";
+      const notasFinal = `[mezcla:${mezclaId}] ${lotesTag}${notasBase}`.trim();
+
       const payload = {
         fecha,
         variedad_id: varId,
@@ -3905,10 +4639,15 @@ async function guardarTratamiento(e) {
       }
     }
 
-    mostrarToast("Mezcla / Aplicación actualizada exitosamente", "✅");
+    mostrarToast("Mezcla / Aplicación actualizada exitosamente con control FIFO", "✅");
   } else {
-    // Nueva aplicación (puede ser de 1 o varios productos mezclados)
+    // Nueva aplicación
     for (const item of itemsGuardar) {
+      const lotesTag = item.fifoDesglose && item.fifoDesglose.length > 0
+        ? `[fifo_lotes:${encodeURIComponent(JSON.stringify(item.fifoDesglose))}] `
+        : "";
+      const notasFinal = `[mezcla:${mezclaId}] ${lotesTag}${notasBase}`.trim();
+
       const payload = {
         fecha,
         variedad_id: varId,
@@ -3925,7 +4664,7 @@ async function guardarTratamiento(e) {
     }
 
     const n = itemsGuardar.length;
-    mostrarToast(n > 1 ? `Mezcla registrada (${n} productos) y stock descontado` : "Aplicación registrada y stock descontado", "🧪");
+    mostrarToast(n > 1 ? `Mezcla registrada (${n} productos) con control FIFO` : "Aplicación registrada con control FIFO de almacén", "🧪");
   }
 
   cerrarDialog("modalTratamiento");
@@ -4525,11 +5264,13 @@ function toggleInsumosTab(tab) {
     cContent.classList.add("hidden");
     tabS.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs";
     tabC.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200";
+    renderTablaInsumos(globalData.productos || []);
   } else {
     sContent.classList.add("hidden");
     cContent.classList.remove("hidden");
     tabC.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white shadow-xs";
     tabS.className = "px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200";
+    renderTablaCompras((globalData.compras || []).filter(filtroPorCampana));
   }
 }
 
