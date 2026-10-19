@@ -952,15 +952,25 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
             <div>
               <h3 class="text-base sm:text-lg font-bold text-slate-900">Catálogo de Productos Químicos</h3>
-              <p class="text-[11px] sm:text-xs text-slate-500">45 productos precargados de tu Excel con stock y valorización</p>
+              <p id="subtituloInsumos" class="text-[11px] sm:text-xs text-slate-500">Stock y valorización de insumos en almacén</p>
             </div>
             <div class="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold self-start sm:self-auto">
               Valor Almacén: <span id="badgeValorAlmacen">S/. 0.00</span>
             </div>
           </div>
 
-          <div class="my-3">
-            <input type="text" id="filtroInsumos" oninput="filtrarInsumos()" placeholder="Buscar producto químico, fertilizante, abono..." class="w-full sm:max-w-md px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500">
+          <div class="my-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <div class="relative flex-1 max-w-md">
+              <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400 text-xs">🔍</span>
+              <input type="text" id="filtroInsumos" oninput="filtrarInsumos()" placeholder="Buscar producto químico, fertilizante, abono..." class="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500">
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="btnSoloConStock" onclick="toggleSoloConStockInsumos()" class="px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer select-none" title="Filtrar y mostrar solo productos que tienen stock en almacén">
+                <span>📦</span>
+                <span id="btnSoloConStockTexto">Ver solo con Stock</span>
+                <span id="badgeCantConStock" class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">0</span>
+              </button>
+            </div>
           </div>
 
           <div class="overflow-x-auto">

@@ -1676,6 +1676,10 @@ function recalcularStockYValorizacion() {
   const kpiStock = document.getElementById("kpiValorStock");
   if (kpiStock) kpiStock.textContent = formatMoney(valorTotalAlmacen);
 
+  if (typeof actualizarBtnSoloConStock === "function") {
+    actualizarBtnSoloConStock();
+  }
+
   return valorTotalAlmacen;
 }
 
@@ -1704,17 +1708,98 @@ async function cargarProductos() {
   }
 }
 
-function renderTablaInsumos(productos) {
+// ================= CONTROL FILTRO SOLO CON STOCK =================
+let soloConStockInsumos = false;
+
+function toggleSoloConStockInsumos() {
+  soloConStockInsumos = !soloConStockInsumos;
+  actualizarBtnSoloConStock();
+  filtrarInsumos();
+}
+window.toggleSoloConStockInsumos = toggleSoloConStockInsumos;
+
+function actualizarBtnSoloConStock() {
+  const btn = document.getElementById("btnSoloConStock");
+  const txt = document.getElementById("btnSoloConStockTexto");
+  const badge = document.getElementById("badgeCantConStock");
+  const sub = document.getElementById("subtituloInsumos");
+
+  const todos = globalData.productos || [];
+  const conStock = todos.filter(p => (Number(p.stock_actual) || 0) > 0);
+
+  if (badge) {
+    badge.textContent = `${conStock.length}`;
+  }
+
+  if (btn) {
+    if (soloConStockInsumos) {
+      btn.className = "px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer select-none border border-emerald-600";
+      if (txt) txt.textContent = "Mostrando solo con Stock";
+      if (badge) badge.className = "bg-white text-emerald-800 text-[10px] font-black px-1.5 py-0.5 rounded-full";
+    } else {
+      btn.className = "px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer select-none";
+      if (txt) txt.textContent = "Ver solo con Stock";
+      if (badge) badge.className = "bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full";
+    }
+  }
+
+  if (sub) {
+    if (soloConStockInsumos) {
+      sub.textContent = `${conStock.length} de ${todos.length} productos cuentan actualmente con stock en almacén`;
+    } else {
+      sub.textContent = `${todos.length} productos registrados (${conStock.length} con stock disponible)`;
+    }
+  }
+}
+
+function renderTablaInsumos(productos, vieneDeFiltro = false) {
   const tbody = document.getElementById("insumosTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
 
+  actualizarBtnSoloConStock();
+
+  let lista = productos;
+  if (!vieneDeFiltro) {
+    const query = (document.getElementById("filtroInsumos")?.value || "").toLowerCase().trim();
+    if (soloConStockInsumos) {
+      lista = (lista || []).filter(p => (Number(p.stock_actual) || 0) > 0);
+    }
+    if (query) {
+      lista = (lista || []).filter(p => (p.nombre || "").toLowerCase().includes(query) || (p.categoria || "").toLowerCase().includes(query));
+    }
+  }
+
+  if (!lista || lista.length === 0) {
+    const query = (document.getElementById("filtroInsumos")?.value || "").trim();
+    let mensaje = "No se encontraron productos";
+    if (soloConStockInsumos && query) {
+      mensaje = `No hay productos con stock que coincidan con "${query}"`;
+    } else if (soloConStockInsumos) {
+      mensaje = "Actualmente no tienes productos con stock físico en el almacén";
+    } else if (query) {
+      mensaje = `No se encontraron productos que coincidan con "${query}"`;
+    }
+
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="py-10 text-center text-slate-400">
+          <div class="text-3xl mb-1.5">📦</div>
+          <div class="font-medium text-slate-600">${mensaje}</div>
+          ${soloConStockInsumos ? '<button type="button" onclick="toggleSoloConStockInsumos()" class="mt-2.5 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-800 hover:underline cursor-pointer"><span>👀</span> Ver todo el catálogo de insumos</button>' : ''}
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
   let valorTotalAlmacen = 0;
 
-  productos.forEach(p => {
+  lista.forEach(p => {
     const valor = p.valor_stock !== undefined ? p.valor_stock : ((Number(p.stock_actual) || 0) * (Number(p.precio_referencial) || 0));
     valorTotalAlmacen += valor;
-    const stockClass = (Number(p.stock_actual) || 0) <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
+    const stockActual = Number(p.stock_actual) || 0;
+    const stockClass = stockActual <= 0 ? "text-slate-400" : "text-emerald-700 font-black";
 
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
@@ -1739,17 +1824,21 @@ function renderTablaInsumos(productos) {
     `;
     tbody.appendChild(tr);
   });
-
-  const badge = document.getElementById("badgeValorAlmacen");
-  if (badge) badge.textContent = formatMoney(valorTotalAlmacen);
-  const kpiStock = document.getElementById("kpiValorStock");
-  if (kpiStock) kpiStock.textContent = formatMoney(valorTotalAlmacen);
 }
 
 function filtrarInsumos() {
-  const query = document.getElementById("filtroInsumos").value.toLowerCase();
-  const filtrados = globalData.productos.filter(p => p.nombre.toLowerCase().includes(query));
-  renderTablaInsumos(filtrados);
+  actualizarBtnSoloConStock();
+  const query = (document.getElementById("filtroInsumos")?.value || "").toLowerCase().trim();
+  
+  let lista = (globalData.productos || []);
+  if (soloConStockInsumos) {
+    lista = lista.filter(p => (Number(p.stock_actual) || 0) > 0);
+  }
+  if (query) {
+    lista = lista.filter(p => (p.nombre || "").toLowerCase().includes(query) || (p.categoria || "").toLowerCase().includes(query));
+  }
+
+  renderTablaInsumos(lista, true);
 }
 
 async function cargarTrabajadores() {
