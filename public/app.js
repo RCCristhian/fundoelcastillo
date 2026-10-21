@@ -189,9 +189,6 @@ function actualizarUIModoEditor() {
 
 function requiereModoEditor(callbackSiAutorizado) {
   if (esModoEditor()) {
-    if (typeof callbackSiAutorizado === "function") {
-      callbackSiAutorizado();
-    }
     return true;
   }
   abrirModalAuthEditor(false, callbackSiAutorizado);
