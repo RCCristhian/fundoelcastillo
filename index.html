@@ -404,16 +404,19 @@
           </div>
 
           <!-- Valor Stock en Almacén -->
-          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between col-span-2 lg:col-span-1">
+          <div onclick="abrirModalResumenStock()" class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between col-span-2 lg:col-span-1 cursor-pointer hover:border-teal-400 hover:shadow-md transition-all group active:scale-[0.99]" title="Clic para ver productos en stock y su valorización">
             <div class="flex items-center justify-between">
-              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Stock</p>
-              <div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
+              <div class="flex items-center gap-1.5">
+                <p class="text-[10px] sm:text-xs font-bold text-slate-400 group-hover:text-teal-700 uppercase tracking-wider transition">Valor Stock</p>
+                <span class="text-[9px] font-bold text-teal-700 bg-teal-100/90 px-1.5 py-0.5 rounded-md group-hover:bg-teal-200 transition">Ver stock 👁️</span>
+              </div>
+              <div class="w-8 h-8 rounded-lg bg-teal-50 group-hover:bg-teal-100 text-teal-600 flex items-center justify-center transition">
                 📦
               </div>
             </div>
             <div class="mt-2">
-              <h3 id="kpiValorStock" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
-              <p class="text-[11px] text-teal-600 mt-0.5 font-medium truncate">Inventario en almacén</p>
+              <h3 id="kpiValorStock" class="text-lg sm:text-2xl font-black text-slate-900 group-hover:text-teal-800 truncate transition">S/. 0.00</h3>
+              <p class="text-[11px] text-teal-600 mt-0.5 font-medium truncate">Inventario en almacén &bull; Clic para ver</p>
             </div>
           </div>
         </div>
@@ -1426,6 +1429,57 @@
           <span>📋 Ver historial de jornales</span> &rarr;
         </button>
         <button type="button" onclick="cerrarDialog('modalResumenTrabajadores')" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition cursor-pointer">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Pop-up: Resumen Rápido de Productos en Stock y su Valor -->
+  <dialog id="modalResumenStock" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-lg w-[94vw]">
+    <div class="bg-white rounded-2xl overflow-hidden flex flex-col max-h-[88vh]">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-teal-700 to-teal-800 text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-xs">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-lg shadow-2xs">
+            📦
+          </div>
+          <div>
+            <h3 class="font-bold text-sm sm:text-base text-white leading-tight">Productos en Stock y Valorización</h3>
+            <p id="resumenStockSub" class="text-[11px] text-teal-100 font-medium">Inventario disponible actualmente en almacén</p>
+          </div>
+        </div>
+        <button type="button" onclick="cerrarDialog('modalResumenStock')" class="text-white/80 hover:text-white text-2xl leading-none px-2 py-0.5 rounded-lg hover:bg-white/10 transition cursor-pointer">&times;</button>
+      </div>
+
+      <!-- Resumen Superior / Tarjetas Rápidas -->
+      <div class="bg-teal-50/70 border-b border-teal-100 p-3.5 sm:p-4 grid grid-cols-2 gap-2 sm:gap-3 shrink-0 text-center">
+        <div class="bg-white rounded-xl p-2.5 border border-teal-200/70 shadow-2xs">
+          <p class="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">Valor Total en Almacén</p>
+          <p id="resumenStockTotalValor" class="text-xs sm:text-base font-black text-teal-900 truncate">S/. 0.00</p>
+        </div>
+        <div class="bg-white rounded-xl p-2.5 border border-teal-200/70 shadow-2xs">
+          <p class="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">Productos con Stock</p>
+          <p id="resumenStockCantidadProductos" class="text-xs sm:text-base font-black text-slate-800 truncate">0 productos</p>
+        </div>
+      </div>
+
+      <!-- Buscador rápido dentro del modal si hay varios productos -->
+      <div class="px-4 pt-3 pb-1 bg-white border-b border-slate-100">
+        <input type="text" id="buscadorResumenStock" oninput="filtrarListaResumenStock(this.value)" placeholder="🔍 Buscar insumo en stock..." class="w-full px-3 py-1.5 text-xs border rounded-xl focus:ring-1 focus:ring-teal-500 bg-slate-50">
+      </div>
+
+      <!-- Lista Detallada de Insumos con Stock -->
+      <div id="resumenStockLista" class="p-3.5 sm:p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-slate-100">
+        <!-- Render dinámico con JS -->
+      </div>
+
+      <!-- Footer con acceso directo a Almacén e Insumos -->
+      <div class="p-3 sm:p-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0 text-xs">
+        <button type="button" onclick="cerrarDialog('modalResumenStock'); navigate('insumos');" class="text-teal-800 hover:text-teal-950 font-bold flex items-center gap-1.5 transition cursor-pointer">
+          <span>📦 Ir al almacén completo</span> &rarr;
+        </button>
+        <button type="button" onclick="cerrarDialog('modalResumenStock')" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition cursor-pointer">
           Cerrar
         </button>
       </div>

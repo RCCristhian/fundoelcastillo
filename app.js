@@ -4132,6 +4132,122 @@ function abrirModalResumenTrabajadores() {
 }
 window.abrirModalResumenTrabajadores = abrirModalResumenTrabajadores;
 
+// ================= POP-UP RÁPIDO: RESUMEN DE PRODUCTOS EN STOCK Y VALOR =================
+let cacheProductosConStockModal = [];
+
+function abrirModalResumenStock() {
+  const modal = document.getElementById("modalResumenStock");
+  if (!modal) return;
+
+  // Recalcular valorizaciones y stocks para que esté 100% fresco
+  recalcularStockYValorizacion();
+
+  const productos = globalData.productos || [];
+  // Filtrar productos con stock real > 0
+  const conStock = productos.filter(p => (Number(p.stock_actual) || 0) > 0.0001);
+
+  // Ordenar de mayor a menor valor en stock
+  conStock.sort((a, b) => (Number(b.valor_stock) || 0) - (Number(a.valor_stock) || 0));
+  cacheProductosConStockModal = conStock;
+
+  const totalValor = conStock.reduce((acc, p) => acc + (Number(p.valor_stock) || 0), 0);
+
+  // KPIs superiores
+  const elTotalValor = document.getElementById("resumenStockTotalValor");
+  if (elTotalValor) elTotalValor.textContent = formatMoney(totalValor);
+
+  const elCantidad = document.getElementById("resumenStockCantidadProductos");
+  if (elCantidad) {
+    elCantidad.textContent = `${conStock.length} ${conStock.length === 1 ? 'producto' : 'productos'}`;
+  }
+
+  // Reset del buscador
+  const buscador = document.getElementById("buscadorResumenStock");
+  if (buscador) buscador.value = "";
+
+  renderItemsResumenStock(conStock, totalValor);
+  modal.showModal();
+}
+
+function filtrarListaResumenStock(query) {
+  const q = (query || "").toLowerCase().trim();
+  const totalValor = cacheProductosConStockModal.reduce((acc, p) => acc + (Number(p.valor_stock) || 0), 0);
+  if (!q) {
+    renderItemsResumenStock(cacheProductosConStockModal, totalValor);
+    return;
+  }
+  const filtrados = cacheProductosConStockModal.filter(p => {
+    return (p.nombre && p.nombre.toLowerCase().includes(q)) ||
+           (p.categoria && p.categoria.toLowerCase().includes(q));
+  });
+  renderItemsResumenStock(filtrados, totalValor);
+}
+
+function renderItemsResumenStock(lista, totalValor) {
+  const container = document.getElementById("resumenStockLista");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!lista || lista.length === 0) {
+    container.innerHTML = `
+      <div class="py-10 text-center text-slate-400">
+        <div class="text-3xl mb-2">📦</div>
+        <p class="font-bold text-slate-600 text-xs">No hay productos con stock disponible en este momento</p>
+        <p class="text-[11px] text-slate-400 mt-1">Registra compras de insumos para sumar existencias valorizadas al almacén.</p>
+        <button type="button" onclick="cerrarDialog('modalResumenStock'); abrirModalCompraInsumo();" class="mt-3 px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition cursor-pointer">
+          + Registrar Compra de Insumo
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  lista.forEach(p => {
+    const stock = Number(p.stock_actual) || 0;
+    const stockStr = (stock % 1 === 0) ? formatNum(stock, 0) : formatNum(stock, 2);
+    const unidad = p.unidad || 'und';
+    const valor = Number(p.valor_stock) || 0;
+    const precioRef = stock > 0 ? (valor / stock) : (Number(p.precio_referencial) || 0);
+    const pct = totalValor > 0 ? ((valor / totalValor) * 100) : 0;
+    const categoria = p.categoria || 'Fitosanitario';
+
+    const itemEl = document.createElement("div");
+    itemEl.className = "p-3 bg-white hover:bg-teal-50/50 rounded-xl border border-slate-200/80 transition-all flex flex-col gap-2";
+    itemEl.innerHTML = `
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 font-black text-sm flex items-center justify-center shrink-0 border border-teal-200 shadow-2xs">
+            🧪
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <h4 class="font-bold text-slate-900 text-xs sm:text-sm truncate">${p.nombre}</h4>
+              <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium">${categoria}</span>
+            </div>
+            <p class="text-[11px] text-slate-500 font-medium mt-0.5">
+              Stock: <span class="font-black text-teal-800 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200/70">${stockStr} ${unidad}</span>
+              &bull; Costo unit.: <span class="font-semibold text-slate-700">${formatMoney(precioRef)}/${unidad}</span>
+            </p>
+          </div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-xs sm:text-sm font-black text-teal-950">${formatMoney(valor)}</div>
+          <button type="button" onclick="cerrarDialog('modalResumenStock'); abrirModalLotesInsumo(${p.id});" class="text-[10px] font-bold text-teal-700 hover:text-teal-900 bg-teal-100/80 hover:bg-teal-200 px-2 py-0.5 rounded-md inline-flex items-center gap-0.5 mt-1 transition cursor-pointer" title="Ver lotes FIFO">
+            Ver lotes 👁️
+          </button>
+        </div>
+      </div>
+      <!-- Barra de porcentaje del total del almacén -->
+      <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+        <div class="bg-gradient-to-r from-teal-500 to-teal-600 h-full rounded-full transition-all duration-500" style="width: ${Math.min(100, Math.max(3, pct))}%;"></div>
+      </div>
+    `;
+    container.appendChild(itemEl);
+  });
+}
+window.abrirModalResumenStock = abrirModalResumenStock;
+window.filtrarListaResumenStock = filtrarListaResumenStock;
+
 // ================= MODALES Y ACCIONES =================
 function abrirModalRegistroRapido() {
   if (!requiereModoEditor(() => abrirModalRegistroRapido())) return;
