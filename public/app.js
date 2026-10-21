@@ -295,6 +295,22 @@ function navigate(viewName) {
 
   if (viewName === "jornales") {
     cargarMatrizMensualJornales();
+  } else if (viewName === "gastos-especificos") {
+    renderTablaGastosEspecificos((globalData.gastosEspecificos || []).filter(filtroPorCampana));
+  } else if (viewName === "ventas") {
+    renderTablaVentas((globalData.ventas || []).filter(filtroPorCampana));
+  } else if (viewName === "gastos-generales") {
+    renderTablaGastosGenerales((globalData.gastosGenerales || []).filter(filtroPorCampana));
+  } else if (viewName === "tratamientos") {
+    renderTablaTratamientos((globalData.tratamientos || []).filter(filtroPorCampana));
+  } else if (viewName === "insumos") {
+    renderTablaInsumos(globalData.productos || []);
+  } else if (viewName === "compras") {
+    renderTablaCompras((globalData.compras || []).filter(filtroPorCampana));
+  } else if (viewName === "alquiler-parcelas") {
+    aplicarFiltroAlquileres();
+  } else if (viewName === "ingresos-financieros") {
+    renderTablaIngresosFinancieros((globalData.ingresosFinancieros || []).filter(filtroPorCampana));
   }
 }
 
@@ -1166,11 +1182,17 @@ function filtroPorCampana(item) {
 // ================= CARGA DE DATOS =================
 async function cargarTodosLosDatos() {
   await cargarCampanas();
+
+  // 1. Cargar tablas maestras y catálogos primero (relaciones y nombres de variedades, productos, etc.)
   await Promise.all([
-    cargarProductos(),
     cargarVariedades(),
     cargarParcelas(),
     cargarTrabajadores(),
+    cargarProductos()
+  ]);
+
+  // 2. Cargar tablas operacionales y transacciones que dependen de los catálogos
+  await Promise.all([
     cargarVentas(),
     cargarGastosEspecificos(),
     cargarGastosGenerales(),
@@ -1182,10 +1204,17 @@ async function cargarTodosLosDatos() {
     cargarCompras()
   ]);
 
-  // Recalcular inventario valorizado y sincronizar tablas que dependen de compras y aplicaciones
+  // 3. Recalcular y renderizar sincronizadamente todas las vistas
   recalcularStockYValorizacion();
   renderTablaInsumos(globalData.productos || []);
   renderTablaCompras((globalData.compras || []).filter(filtroPorCampana));
+  renderTablaGastosEspecificos((globalData.gastosEspecificos || []).filter(filtroPorCampana));
+  renderTablaGastosGenerales((globalData.gastosGenerales || []).filter(filtroPorCampana));
+  renderTablaVentas((globalData.ventas || []).filter(filtroPorCampana));
+  renderTablaTratamientos((globalData.tratamientos || []).filter(filtroPorCampana));
+  renderTablaJornales((globalData.jornales || []).filter(filtroPorCampana));
+  renderTablaIngresosFinancieros((globalData.ingresosFinancieros || []).filter(filtroPorCampana));
+  aplicarFiltroAlquileres();
   calcularYRenderizarDashboard();
 }
 
@@ -1222,8 +1251,11 @@ async function cargarVariedades() {
     if (!el) return;
     const prevVal = el.value;
     el.innerHTML = "";
-    if (id === "jornalVariedadId" || id === "geVariedadId") {
+    if (id === "jornalVariedadId") {
       el.innerHTML += `<option value="">-- General / Todo el Campo --</option>`;
+    } else if (id === "geVariedadId") {
+      el.innerHTML += `<option value="" disabled selected>-- Selecciona el Cultivo / Variedad --</option>`;
+      el.innerHTML += `<option value="">-- General / Sin Variedad --</option>`;
     }
     res.data.forEach(v => {
       const arbStr = v.num_arboles > 0 ? `${v.num_arboles} árb.` : `sin registrar`;
@@ -1233,6 +1265,20 @@ async function cargarVariedades() {
       el.value = prevVal;
     }
   });
+
+  // Si ya existían transacciones cargadas, refrescar vistas dependientes de variedades
+  if (globalData.gastosEspecificos && globalData.gastosEspecificos.length > 0) {
+    renderTablaGastosEspecificos(globalData.gastosEspecificos.filter(filtroPorCampana));
+  }
+  if (globalData.ventas && globalData.ventas.length > 0) {
+    renderTablaVentas(globalData.ventas.filter(filtroPorCampana));
+  }
+  if (globalData.tratamientos && globalData.tratamientos.length > 0) {
+    renderTablaTratamientos(globalData.tratamientos.filter(filtroPorCampana));
+  }
+  if (globalData.jornales && globalData.jornales.length > 0) {
+    renderTablaJornales(globalData.jornales.filter(filtroPorCampana));
+  }
 
   const tbody = document.getElementById("adminVariedadesBody");
   if (tbody) {
@@ -2121,9 +2167,16 @@ function renderTablaGastosEspecificos(lista) {
   if (!tbody) return;
   tbody.innerHTML = "";
 
+  if (!lista || lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-400 italic">No hay gastos específicos registrados en esta campaña.</td></tr>`;
+    return;
+  }
+
   lista.forEach(ge => {
-    const variedad = globalData.variedades.find(item => item.id == ge.variedad_id);
-    const varNombre = ge.variedad_nombre || variedad?.nombre || "Sin Variedad";
+    const variedad = (globalData.variedades || []).find(item => 
+      item && ge.variedad_id && (item.id == ge.variedad_id || String(item.id) === String(ge.variedad_id))
+    );
+    const varNombre = variedad ? variedad.nombre : (ge.variedad_nombre || (ge.variedad_id ? `Variedad #${ge.variedad_id}` : "Sin Variedad"));
 
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
@@ -5015,6 +5068,22 @@ function abrirModalGastoEspecifico() {
       fechaEl.value = new Date().toISOString().split("T")[0];
     }
   }
+
+  const selectVar = document.getElementById("geVariedadId");
+  if (selectVar) {
+    if ((!selectVar.options || selectVar.options.length <= 1) && globalData.variedades.length > 0) {
+      let opts = `<option value="" disabled selected>-- Selecciona el Cultivo / Variedad --</option>`;
+      opts += `<option value="">-- General / Sin Variedad --</option>`;
+      globalData.variedades.forEach(v => {
+        const arbStr = v.num_arboles > 0 ? `${v.num_arboles} árb.` : `sin registrar`;
+        opts += `<option value="${v.id}">${v.nombre} (${v.especie} - ${arbStr})</option>`;
+      });
+      selectVar.innerHTML = opts;
+    } else {
+      selectVar.selectedIndex = 0;
+    }
+  }
+
   document.getElementById("modalGastoEspecifico")?.showModal();
 }
 
@@ -5024,8 +5093,22 @@ function abrirModalEditarGastoEspecifico(id) {
   if (!ge) return;
   document.getElementById("formGastoEspecifico")?.reset();
   if (document.getElementById("geEditId")) document.getElementById("geEditId").value = ge.id;
+
+  const selectVar = document.getElementById("geVariedadId");
+  if (selectVar && (!selectVar.options || selectVar.options.length <= 1) && globalData.variedades.length > 0) {
+    let opts = `<option value="" disabled>-- Selecciona el Cultivo / Variedad --</option>`;
+    opts += `<option value="">-- General / Sin Variedad --</option>`;
+    globalData.variedades.forEach(v => {
+      const arbStr = v.num_arboles > 0 ? `${v.num_arboles} árb.` : `sin registrar`;
+      opts += `<option value="${v.id}">${v.nombre} (${v.especie} - ${arbStr})</option>`;
+    });
+    selectVar.innerHTML = opts;
+  }
+  if (selectVar) {
+    selectVar.value = ge.variedad_id ? String(ge.variedad_id) : "";
+  }
+
   document.getElementById("geFecha").value = ge.fecha || "";
-  document.getElementById("geVariedadId").value = ge.variedad_id || "";
   document.getElementById("geConcepto").value = ge.concepto || "";
   document.getElementById("geTotal").value = ge.total ?? "";
   document.getElementById("geEmpresa").value = ge.empresa || "";
@@ -5045,7 +5128,7 @@ async function guardarGastoEspecifico(e) {
   const totalRaw = document.getElementById("geTotal")?.value || "0";
   const total = parseFloat(String(totalRaw).replace(',', '.')) || 0;
   const varId = document.getElementById("geVariedadId")?.value;
-  const variedad = globalData.variedades.find(v => v.id == varId);
+  const variedad = (globalData.variedades || []).find(v => v.id == varId || String(v.id) === String(varId));
 
   const data = {
     fecha: document.getElementById("geFecha")?.value,
