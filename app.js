@@ -22,6 +22,190 @@ function initSupabaseClient() {
 // Estado de Campaña seleccionada
 let campanaActiva = localStorage.getItem("fundo_campana_activa") || "2026";
 
+// ================= CONTROL DE ACCESO / MODO EDITOR =================
+const PASSWORD_EDITOR = "mauro2763";
+const STORAGE_KEY_AUTH_EDITOR = "fundo_editor_auth";
+let pendingEditorCallback = null;
+
+function esModoEditor() {
+  return localStorage.getItem(STORAGE_KEY_AUTH_EDITOR) === PASSWORD_EDITOR;
+}
+
+function initModoEditor() {
+  actualizarUIModoEditor();
+  if (!esModoEditor()) {
+    // Si no está desbloqueado en este dispositivo, solicitar contraseña al entrar
+    setTimeout(() => {
+      abrirModalAuthEditor(true);
+    }, 450);
+  }
+}
+
+function abrirModalAuthEditor(esInicio = false, callbackAlAutorizar = null) {
+  pendingEditorCallback = callbackAlAutorizar;
+  const modal = document.getElementById("modalAuthEditor");
+  const input = document.getElementById("inputPasswordEditor");
+  const errorMsg = document.getElementById("errorPasswordEditor");
+  const desc = document.getElementById("authEditorDescripcion");
+
+  if (errorMsg) errorMsg.classList.add("hidden");
+  if (input) {
+    input.value = "";
+    input.classList.remove("border-rose-500", "ring-rose-500");
+  }
+
+  if (desc) {
+    if (esInicio) {
+      desc.textContent = "Para registrar ventas, compras, jornales, tratamientos o modificar datos en este dispositivo, ingresa la contraseña de editor. Si solo deseas consultar información, puedes continuar en Modo Lectura.";
+    } else {
+      desc.textContent = "Esta acción requiere permisos de editor. Ingresa la contraseña para habilitar la modificación de datos en este dispositivo:";
+    }
+  }
+
+  if (modal && typeof modal.showModal === "function") {
+    try { modal.showModal(); } catch (e) {}
+    setTimeout(() => { if (input) input.focus(); }, 120);
+  }
+}
+
+function cerrarModalAuthEditor() {
+  const modal = document.getElementById("modalAuthEditor");
+  if (modal && typeof modal.close === "function") {
+    try { modal.close(); } catch (e) {}
+  }
+}
+
+function toggleVerPasswordEditor() {
+  const input = document.getElementById("inputPasswordEditor");
+  const icon = document.getElementById("iconVerPasswordEditor");
+  if (!input) return;
+  if (input.type === "password") {
+    input.type = "text";
+    if (icon) icon.textContent = "🙈";
+  } else {
+    input.type = "password";
+    if (icon) icon.textContent = "👁️";
+  }
+}
+
+function validarContrasenaEditor(e) {
+  if (e && typeof e.preventDefault === "function") e.preventDefault();
+  const input = document.getElementById("inputPasswordEditor");
+  const errorMsg = document.getElementById("errorPasswordEditor");
+  const pass = (input ? input.value : "").trim();
+
+  if (pass === PASSWORD_EDITOR) {
+    localStorage.setItem(STORAGE_KEY_AUTH_EDITOR, PASSWORD_EDITOR);
+    if (errorMsg) errorMsg.classList.add("hidden");
+    cerrarModalAuthEditor();
+    actualizarUIModoEditor();
+    mostrarToast("✅ Modo Editor activado. Este dispositivo recordará tu acceso.", "🔓");
+
+    // Ejecutar acción pendiente si existía
+    if (typeof pendingEditorCallback === "function") {
+      const cb = pendingEditorCallback;
+      pendingEditorCallback = null;
+      cb();
+    }
+    return true;
+  } else {
+    if (errorMsg) errorMsg.classList.remove("hidden");
+    if (input) {
+      input.classList.add("border-rose-500");
+      input.focus();
+      input.select();
+    }
+    mostrarToast("Contraseña incorrecta", "❌");
+    return false;
+  }
+}
+
+function continuarModoLectura() {
+  cerrarModalAuthEditor();
+  pendingEditorCallback = null;
+  actualizarUIModoEditor();
+  mostrarToast("Modo Lectura activo: solo consulta de información", "🔒");
+}
+
+function bloquearModoEditor() {
+  if (confirm("¿Deseas bloquear el modo editor en este dispositivo? Deberás ingresar la contraseña nuevamente para modificar datos.")) {
+    localStorage.removeItem(STORAGE_KEY_AUTH_EDITOR);
+    actualizarUIModoEditor();
+    mostrarToast("Dispositivo bloqueado en Modo Lectura", "🔒");
+  }
+}
+
+function actualizarUIModoEditor() {
+  const editorActivo = esModoEditor();
+  document.body.classList.toggle("fundo-modo-editor", editorActivo);
+  document.body.classList.toggle("fundo-modo-lectura", !editorActivo);
+
+  const container = document.getElementById("containerAuthEditorHeader");
+  if (container) {
+    if (editorActivo) {
+      container.innerHTML = `
+        <div class="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/90 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-bold shadow-2xs">
+          <span class="text-xs">🔓</span>
+          <span class="hidden md:inline">Modo Editor</span>
+          <button type="button" onclick="bloquearModoEditor()" class="text-slate-400 hover:text-rose-600 ml-1 text-[10px] font-semibold transition" title="Bloquear modo editor en este dispositivo">🔒 Salir</button>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <button type="button" onclick="abrirModalAuthEditor()" class="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95" title="Actualmente en modo solo lectura. Clic para desbloquear edición con contraseña.">
+          <span>🔒</span>
+          <span class="hidden sm:inline">Modo Lectura</span>
+          <span class="text-[10px] bg-amber-200/90 text-amber-950 px-1.5 py-0.5 rounded-md font-black">Desbloquear</span>
+        </button>
+      `;
+    }
+  }
+
+  const badgeSidebar = document.getElementById("badgeModoEditorSidebar");
+  if (badgeSidebar) {
+    if (editorActivo) {
+      badgeSidebar.className = "p-2 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-[11px] text-emerald-300 flex items-center justify-between";
+      badgeSidebar.removeAttribute("onclick");
+      badgeSidebar.innerHTML = `
+        <div class="flex items-center gap-1.5">
+          <span>🔓</span>
+          <span class="font-bold">Modo Editor</span>
+        </div>
+        <button onclick="bloquearModoEditor()" class="text-emerald-400 hover:text-rose-300 text-[10px] font-semibold">Salir</button>
+      `;
+    } else {
+      badgeSidebar.className = "p-2 bg-amber-950/60 border border-amber-800/80 rounded-xl text-[11px] text-amber-300 flex items-center justify-between cursor-pointer hover:bg-amber-900/60 transition";
+      badgeSidebar.setAttribute("onclick", "abrirModalAuthEditor()");
+      badgeSidebar.innerHTML = `
+        <div class="flex items-center gap-1.5">
+          <span>🔒</span>
+          <span class="font-bold">Modo Lectura</span>
+        </div>
+        <span class="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-extrabold">Desbloquear</span>
+      `;
+    }
+  }
+}
+
+function requiereModoEditor(callbackSiAutorizado) {
+  if (esModoEditor()) {
+    if (typeof callbackSiAutorizado === "function") {
+      callbackSiAutorizado();
+    }
+    return true;
+  }
+  abrirModalAuthEditor(false, callbackSiAutorizado);
+  return false;
+}
+window.esModoEditor = esModoEditor;
+window.abrirModalAuthEditor = abrirModalAuthEditor;
+window.cerrarModalAuthEditor = cerrarModalAuthEditor;
+window.toggleVerPasswordEditor = toggleVerPasswordEditor;
+window.validarContrasenaEditor = validarContrasenaEditor;
+window.continuarModoLectura = continuarModoLectura;
+window.bloquearModoEditor = bloquearModoEditor;
+window.requiereModoEditor = requiereModoEditor;
+
 // Cache de datos
 let globalData = {
   campanas: [],
@@ -51,6 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
   actualizarMonedaLabels();
   initFechasHoy();
   initSupabaseClient();
+  initModoEditor();
   cargarTodosLosDatos();
   iniciarSincronizacionContinua();
 });
@@ -698,6 +883,12 @@ async function forzarSincronizacionNube(mostrarMensajes = true) {
 }
 
 async function dataInsert(table, record) {
+  if (!esModoEditor()) {
+    abrirModalAuthEditor(false);
+    mostrarToast("Operación bloqueada: Requiere contraseña de editor", "🔒");
+    return { success: false, error: "Requiere contraseña de editor" };
+  }
+
   if (!record.id) {
     record.id = Date.now();
   }
@@ -753,6 +944,12 @@ async function dataInsert(table, record) {
 }
 
 async function dataDelete(table, id, confirmar = true, recargar = true) {
+  if (!esModoEditor()) {
+    abrirModalAuthEditor(false);
+    mostrarToast("Operación bloqueada: Requiere contraseña de editor", "🔒");
+    return false;
+  }
+
   if (confirmar && !confirm("¿Deseas eliminar este registro?")) return false;
 
   addDeletedId(table, id);
@@ -786,6 +983,12 @@ async function dataDelete(table, id, confirmar = true, recargar = true) {
 }
 
 async function dataUpdate(table, id, fields) {
+  if (!esModoEditor()) {
+    abrirModalAuthEditor(false);
+    mostrarToast("Operación bloqueada: Requiere contraseña de editor", "🔒");
+    return false;
+  }
+
   fields.updated_at = new Date().toISOString();
 
   if (supabaseClient) {
@@ -891,6 +1094,7 @@ function cambiarCampana(val) {
 }
 
 function abrirModalNuevaCampana() {
+  if (!requiereModoEditor(() => abrirModalNuevaCampana())) return;
   document.getElementById("modalNuevaCampana")?.showModal();
 }
 
@@ -922,6 +1126,8 @@ async function guardarNuevaCampana(e) {
 }
 
 async function borrarCampanaSeleccionada() {
+  if (!requiereModoEditor(() => borrarCampanaSeleccionada())) return;
+
   if (campanaActiva === "todas") {
     alert("No puedes eliminar la vista histórica de 'Todas las Campañas'. Por favor selecciona una campaña específica en el menú.");
     return;
@@ -1079,6 +1285,7 @@ async function cargarVariedades() {
 }
 
 function abrirModalGestionArboles() {
+  if (!requiereModoEditor(() => abrirModalGestionArboles())) return;
   const tbody = document.getElementById("listaGestionArbolesBody");
   if (!tbody) return;
   tbody.innerHTML = "";
@@ -1100,6 +1307,7 @@ function abrirModalGestionArboles() {
 }
 
 function ponerArbolesEnCero() {
+  if (!requiereModoEditor(() => ponerArbolesEnCero())) return;
   document.querySelectorAll(".input-arboles").forEach(inp => inp.value = "0");
 }
 
@@ -1156,6 +1364,7 @@ async function cargarParcelas() {
 }
 
 function abrirModalParcela() {
+  if (!requiereModoEditor(() => abrirModalParcela())) return;
   const form = document.getElementById("formParcela");
   if (form) form.reset();
   if (document.getElementById("parcEditId")) document.getElementById("parcEditId").value = "";
@@ -1166,6 +1375,7 @@ function abrirModalParcela() {
 }
 
 function abrirModalEditarParcela(id) {
+  if (!requiereModoEditor(() => abrirModalEditarParcela(id))) return;
   const p = globalData.parcelas.find(item => String(item.id) === String(id));
   if (!p) return;
 
@@ -2205,6 +2415,7 @@ function renderTablaAlquileresParcelas(lista) {
 }
 
 function abrirModalContratoAlquiler() {
+  if (!requiereModoEditor(() => abrirModalContratoAlquiler())) return;
   document.getElementById("formContratoAlquiler")?.reset();
   const idEl = document.getElementById("alqId");
   if (idEl) idEl.value = "";
@@ -2229,6 +2440,7 @@ function abrirModalContratoAlquiler() {
 }
 
 function abrirModalEditarContratoAlquiler(id) {
+  if (!requiereModoEditor(() => abrirModalEditarContratoAlquiler(id))) return;
   const item = (globalData.alquileresParcelas || []).find(x => x.id == id);
   if (!item) return;
   document.getElementById("formContratoAlquiler")?.reset();
@@ -2361,6 +2573,7 @@ async function eliminarContratoAlquiler(id) {
 
 // ================= GESTIÓN DE ABONOS / CUOTAS DE ALQUILER =================
 function abrirModalPagoAlquiler(contratoId) {
+  if (!requiereModoEditor(() => abrirModalPagoAlquiler(contratoId))) return;
   const contrato = (globalData.alquileresParcelas || []).find(x => x.id == contratoId);
   if (!contrato) return;
 
@@ -2592,6 +2805,7 @@ function renderTablaIngresosFinancieros(lista) {
 }
 
 function abrirModalIngresoFinanciero() {
+  if (!requiereModoEditor(() => abrirModalIngresoFinanciero())) return;
   document.getElementById("formIngresoFinanciero")?.reset();
   const idEl = document.getElementById("ingFinId");
   if (idEl) idEl.value = "";
@@ -2614,6 +2828,7 @@ function abrirModalIngresoFinanciero() {
 }
 
 function abrirModalEditarIngresoFinanciero(id) {
+  if (!requiereModoEditor(() => abrirModalEditarIngresoFinanciero(id))) return;
   const item = (globalData.ingresosFinancieros || []).find(x => x.id == id);
   if (!item) return;
   document.getElementById("formIngresoFinanciero")?.reset();
@@ -2666,6 +2881,7 @@ async function guardarIngresoFinanciero(e) {
 }
 
 async function eliminarIngresoFinanciero(id) {
+  if (!requiereModoEditor(() => eliminarIngresoFinanciero(id))) return;
   const ok = await dataDelete("ingresos_financieros", id);
   if (ok) {
     await cargarIngresosFinancieros();
@@ -2889,6 +3105,7 @@ function renderTablaTratamientos(lista) {
 }
 
 async function eliminarTratamiento(midOrId) {
+  if (!requiereModoEditor(() => eliminarTratamiento(midOrId))) return;
   const items = (globalData.tratamientos || []).filter(t => {
     extraerInfoMezcla(t);
     return t.mezcla_id == midOrId || t.id == midOrId || `single_${t.id}` == midOrId;
@@ -3740,10 +3957,13 @@ function cargarMatrizMensualJornales() {
 }
 
 // ================= MODALES Y ACCIONES =================
-function abrirModalRegistroRapido() { document.getElementById("modalRegistroRapido")?.showModal(); }
-function abrirModalVenta() { document.getElementById("modalVenta")?.showModal(); }
+function abrirModalRegistroRapido() {
+  if (!requiereModoEditor(() => abrirModalRegistroRapido())) return;
+  document.getElementById("modalRegistroRapido")?.showModal();
+}
 
 function abrirModalTrabajador() {
+  if (!requiereModoEditor(() => abrirModalTrabajador())) return;
   cancelarEdicionTrabajador();
   renderListaTrabajadoresModal();
   document.getElementById("modalTrabajador")?.showModal();
@@ -3867,6 +4087,7 @@ async function eliminarTrabajador(id) {
 }
 
 function abrirModalJornal() {
+  if (!requiereModoEditor(() => abrirModalJornal())) return;
   const modalTitle = document.getElementById("modalJornalTitle");
   if (modalTitle) modalTitle.textContent = "Registrar Jornal de Mano de Obra";
   document.getElementById("formJornal")?.reset();
@@ -3894,6 +4115,7 @@ function abrirModalJornal() {
 }
 
 function abrirModalEditarJornal(id) {
+  if (!requiereModoEditor(() => abrirModalEditarJornal(id))) return;
   const j = globalData.jornales.find(item => item.id == id);
   if (!j) return;
 
@@ -3930,6 +4152,7 @@ function abrirModalEditarJornal(id) {
 
 
 function abrirModalGastoGeneral() {
+  if (!requiereModoEditor(() => abrirModalGastoGeneral())) return;
   document.getElementById("formGastoGeneral")?.reset();
   const idEl = document.getElementById("ggId");
   if (idEl) idEl.value = "";
@@ -3942,6 +4165,7 @@ function abrirModalGastoGeneral() {
 }
 
 function abrirModalEditarGastoGeneral(id) {
+  if (!requiereModoEditor(() => abrirModalEditarGastoGeneral(id))) return;
   const g = (globalData.gastosGenerales || []).find(item => item.id == id);
   if (!g) return;
   document.getElementById("formGastoGeneral")?.reset();
@@ -3960,10 +4184,9 @@ function abrirModalEditarGastoGeneral(id) {
   if (btn) btn.textContent = "Actualizar Gasto";
   document.getElementById("modalGastoGeneral")?.showModal();
 }
-function abrirModalGastoEspecifico() { document.getElementById("modalGastoEspecifico")?.showModal(); }
-function abrirModalCompraInsumo() { document.getElementById("modalCompraInsumo")?.showModal(); }
-function abrirModalNuevoProducto() { document.getElementById("modalNuevoProducto")?.showModal(); }
+
 function abrirModalVariedad() {
+  if (!requiereModoEditor(() => abrirModalVariedad())) return;
   const modalTitle = document.getElementById("modalVariedadTitle");
   if (modalTitle) modalTitle.textContent = "Nueva Variedad / Cultivo";
   document.getElementById("formVariedad").reset();
@@ -3973,6 +4196,7 @@ function abrirModalVariedad() {
 }
 
 function abrirModalEditarVariedad(id) {
+  if (!requiereModoEditor(() => abrirModalEditarVariedad(id))) return;
   const v = globalData.variedades.find(item => item.id == id);
   if (!v) return;
 
@@ -4071,6 +4295,7 @@ function actualizarPrecioInsumo(productoId) {
 
 // ================= FUNCIONES DE APERTURA Y EDICIÓN DE MODALES =================
 function abrirModalVenta() {
+  if (!requiereModoEditor(() => abrirModalVenta())) return;
   document.getElementById("formVenta")?.reset();
   if (document.getElementById("ventaEditId")) document.getElementById("ventaEditId").value = "";
   const title = document.getElementById("modalVentaTitle");
@@ -4093,6 +4318,7 @@ function abrirModalVenta() {
 }
 
 function abrirModalEditarVenta(id) {
+  if (!requiereModoEditor(() => abrirModalEditarVenta(id))) return;
   const v = globalData.ventas.find(x => x.id == id);
   if (!v) return;
   document.getElementById("formVenta")?.reset();
@@ -4519,6 +4745,7 @@ function recalcularTotalesTratamientoModal() {
 }
 
 function abrirModalTratamiento() {
+  if (!requiereModoEditor(() => abrirModalTratamiento())) return;
   document.getElementById("formTratamiento")?.reset();
   if (document.getElementById("trataEditMezclaId")) document.getElementById("trataEditMezclaId").value = "";
   if (document.getElementById("trataEditId")) document.getElementById("trataEditId").value = "";
@@ -4551,6 +4778,7 @@ function abrirModalTratamiento() {
 }
 
 function abrirModalEditarTratamiento(midOrId) {
+  if (!requiereModoEditor(() => abrirModalEditarTratamiento(midOrId))) return;
   const items = (globalData.tratamientos || []).filter(t => {
     extraerInfoTratamiento(t);
     return t.mezcla_id == midOrId || t.id == midOrId || `single_${t.id}` == midOrId;
@@ -4794,6 +5022,7 @@ async function guardarGastoGeneral(e) {
 }
 
 function abrirModalGastoEspecifico() {
+  if (!requiereModoEditor(() => abrirModalGastoEspecifico())) return;
   document.getElementById("formGastoEspecifico")?.reset();
   if (document.getElementById("geEditId")) document.getElementById("geEditId").value = "";
   const title = document.getElementById("modalGastoEspecificoTitle");
@@ -4816,6 +5045,7 @@ function abrirModalGastoEspecifico() {
 }
 
 function abrirModalEditarGastoEspecifico(id) {
+  if (!requiereModoEditor(() => abrirModalEditarGastoEspecifico(id))) return;
   const ge = globalData.gastosEspecificos.find(x => x.id == id);
   if (!ge) return;
   document.getElementById("formGastoEspecifico")?.reset();
@@ -4869,6 +5099,7 @@ async function guardarGastoEspecifico(e) {
 }
 
 function abrirModalCompraInsumo() {
+  if (!requiereModoEditor(() => abrirModalCompraInsumo())) return;
   document.getElementById("formCompraInsumo")?.reset();
   if (document.getElementById("compraEditId")) document.getElementById("compraEditId").value = "";
   if (document.getElementById("compraTotalInput")) document.getElementById("compraTotalInput").value = "";
@@ -4892,6 +5123,7 @@ function abrirModalCompraInsumo() {
 }
 
 function abrirModalEditarCompraInsumo(id) {
+  if (!requiereModoEditor(() => abrirModalEditarCompraInsumo(id))) return;
   const c = globalData.compras.find(x => x.id == id);
   if (!c) return;
   document.getElementById("formCompraInsumo")?.reset();
@@ -4993,6 +5225,7 @@ async function guardarCompraInsumo(e) {
 }
 
 function abrirModalNuevoProducto() {
+  if (!requiereModoEditor(() => abrirModalNuevoProducto())) return;
   document.getElementById("formNuevoProducto")?.reset();
   if (document.getElementById("prodEditId")) document.getElementById("prodEditId").value = "";
   const title = document.getElementById("modalNuevoProductoTitle");
@@ -5003,6 +5236,7 @@ function abrirModalNuevoProducto() {
 }
 
 function abrirModalEditarProducto(id) {
+  if (!requiereModoEditor(() => abrirModalEditarProducto(id))) return;
   const p = globalData.productos.find(x => x.id == id);
   if (!p) return;
   document.getElementById("formNuevoProducto")?.reset();
@@ -5055,6 +5289,7 @@ async function guardarNuevoProducto(e) {
 }
 
 function abrirModalEditarPagoAlquiler(pagoId, contratoId) {
+  if (!requiereModoEditor(() => abrirModalEditarPagoAlquiler(pagoId, contratoId))) return;
   const p = (globalData.alquileresPagos || []).find(x => x.id == pagoId);
   const contrato = (globalData.alquileresParcelas || []).find(x => x.id == contratoId);
   if (!p || !contrato) return;

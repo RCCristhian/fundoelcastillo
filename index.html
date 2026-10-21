@@ -170,6 +170,11 @@
       </nav>
     </div>
 
+    <!-- Indicador de Modo Editor en Sidebar -->
+    <div class="px-3.5 py-2.5 border-t border-slate-800/80 bg-slate-900/40">
+      <div id="badgeModoEditorSidebar"></div>
+    </div>
+
     <!-- Footer Sidebar: Selector de Moneda Limpio -->
     <div class="p-4 border-t border-slate-800/80 text-xs text-slate-400 flex items-center justify-between bg-slate-900/60">
       <span class="text-[11px] text-slate-400">Moneda:</span>
@@ -221,6 +226,8 @@
           <span id="btnSmartSyncDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
           <span id="btnSmartSyncText">Todo al día</span>
         </button>
+        <!-- Indicador y Botón Modo Editor / Lectura -->
+        <div id="containerAuthEditorHeader" class="flex items-center"></div>
       </div>
     </header>
 
@@ -1137,6 +1144,55 @@
   </div>
 
   <!-- ================= MODALES DE REGISTRO ================= -->
+
+  <!-- Modal de Autenticación de Modo Editor -->
+  <dialog id="modalAuthEditor" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-sm w-[92vw]">
+    <div class="bg-white rounded-2xl overflow-hidden flex flex-col">
+      <div class="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🔐</span>
+          <div>
+            <h3 class="font-bold text-sm">Control de Acceso Editor</h3>
+            <p class="text-[10px] text-slate-300">Fundo El Castillo</p>
+          </div>
+        </div>
+        <button type="button" onclick="cerrarModalAuthEditor()" class="text-slate-400 hover:text-white text-xl leading-none px-1 cursor-pointer" title="Cerrar">&times;</button>
+      </div>
+
+      <form id="formAuthEditor" onsubmit="validarContrasenaEditor(event)" class="p-5 space-y-4 text-xs">
+        <div>
+          <p id="authEditorDescripcion" class="text-slate-600 text-xs leading-relaxed">
+            Para registrar ventas, compras, jornales, tratamientos o modificar datos en este dispositivo, ingresa la contraseña de editor. Si solo deseas consultar información, puedes continuar en Modo Lectura.
+          </p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block font-bold text-slate-800 text-xs">Contraseña de Editor</label>
+          <div class="relative">
+            <input type="password" id="inputPasswordEditor" required autocomplete="current-password" placeholder="Ingresa la contraseña..." class="w-full px-3 py-2.5 pr-10 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono">
+            <button type="button" onclick="toggleVerPasswordEditor()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 text-xs cursor-pointer select-none">
+              <span id="iconVerPasswordEditor">👁️</span>
+            </button>
+          </div>
+          <p id="errorPasswordEditor" class="text-rose-600 font-bold text-[11px] hidden">❌ Contraseña incorrecta. Inténtalo de nuevo.</p>
+        </div>
+
+        <div class="p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 flex items-start gap-2">
+          <span class="text-xs">💡</span>
+          <p class="leading-tight">Una vez ingresada, este dispositivo recordará que eres editor. Otros dispositivos necesitarán la contraseña.</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 pt-1">
+          <button type="button" onclick="continuarModoLectura()" class="order-2 sm:order-1 flex-1 py-2.5 px-3 border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-xl text-center transition cursor-pointer">
+            Solo Lectura
+          </button>
+          <button type="submit" class="order-1 sm:order-2 flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-center shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>🔓</span> Desbloquear
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
 
   <!-- Modal Registro Rápido -->
   <dialog id="modalRegistroRapido" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-lg w-[92vw]">
