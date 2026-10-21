@@ -3983,6 +3983,155 @@ function cargarMatrizMensualJornales() {
   tbody.appendChild(trTotC);
 }
 
+// ================= POP-UP RÁPIDO: RESUMEN DE PAGOS POR TRABAJADOR EN LA CAMPAÑA =================
+function abrirModalResumenTrabajadores() {
+  const modal = document.getElementById("modalResumenTrabajadores");
+  if (!modal) return;
+
+  const jornales = (globalData.jornales || []).filter(filtroPorCampana);
+  const trabajadores = globalData.trabajadores || [];
+
+  // Subtítulo con campaña activa
+  const subEl = document.getElementById("resumenTrabajadoresSub");
+  if (subEl) {
+    const nomCamp = (campanaActiva && campanaActiva !== "todas") ? `Campaña ${campanaActiva}` : "Histórico Consolidado (Todas las campañas)";
+    subEl.textContent = `Acumulado en ${nomCamp}`;
+  }
+
+  // Agrupar jornales por trabajador
+  const trabMap = new Map();
+
+  // 1. Inicializar con trabajadores registrados en catálogo
+  trabajadores.forEach(t => {
+    trabMap.set(String(t.id), {
+      id: t.id,
+      nombre: t.nombre,
+      rol: t.rol || "Jornalero",
+      totalMonto: 0,
+      totalJornales: 0,
+      registros: 0
+    });
+  });
+
+  // 2. Acumular los jornales filtrados
+  jornales.forEach(j => {
+    const key = j.trabajador_id ? String(j.trabajador_id) : (j.trabajador_nombre || "Desconocido");
+    if (!trabMap.has(key)) {
+      const match = trabajadores.find(t => t.id == j.trabajador_id);
+      trabMap.set(key, {
+        id: j.trabajador_id || null,
+        nombre: j.trabajador_nombre || match?.nombre || (j.trabajador_id ? `Trabajador #${j.trabajador_id}` : "Trabajador no especificado"),
+        rol: match?.rol || "Jornalero",
+        totalMonto: 0,
+        totalJornales: 0,
+        registros: 0
+      });
+    }
+    const item = trabMap.get(key);
+    item.totalMonto += Number(j.total) || 0;
+    item.totalJornales += Number(j.horas) || 0;
+    item.registros += 1;
+  });
+
+  const list = Array.from(trabMap.values());
+  const conPagos = list.filter(t => t.totalMonto > 0 || t.totalJornales > 0);
+  const sinPagos = list.filter(t => t.totalMonto === 0 && t.totalJornales === 0);
+
+  // Ordenar de mayor a menor monto pagado
+  conPagos.sort((a, b) => b.totalMonto - a.totalMonto);
+
+  const totalGeneral = conPagos.reduce((acc, t) => acc + t.totalMonto, 0);
+  const totalJornalesSum = conPagos.reduce((acc, t) => acc + t.totalJornales, 0);
+
+  // KPIs superiores del modal
+  const elTotalMonto = document.getElementById("resumenTrabajadoresTotalMonto");
+  if (elTotalMonto) elTotalMonto.textContent = formatMoney(totalGeneral);
+
+  const elTotalJornales = document.getElementById("resumenTrabajadoresTotalJornales");
+  if (elTotalJornales) {
+    const jTxt = (totalJornalesSum % 1 === 0) ? formatNum(totalJornalesSum, 0) : formatNum(totalJornalesSum, 1);
+    elTotalJornales.textContent = `${jTxt} jornales`;
+  }
+
+  const elCantidad = document.getElementById("resumenTrabajadoresCantidad");
+  if (elCantidad) {
+    elCantidad.textContent = `${conPagos.length} ${conPagos.length === 1 ? 'trabajador' : 'trabajadores'}`;
+  }
+
+  // Renderizar la lista
+  const container = document.getElementById("resumenTrabajadoresLista");
+  if (container) {
+    container.innerHTML = "";
+
+    if (conPagos.length === 0) {
+      container.innerHTML = `
+        <div class="py-12 text-center text-slate-400">
+          <div class="text-3xl mb-2">👨‍🌾</div>
+          <p class="font-bold text-slate-600 text-xs">No hay jornales registrados en esta campaña</p>
+          <p class="text-[11px] text-slate-400 mt-1">Registra jornales desde el menú de Mano de Obra para ver el resumen.</p>
+        </div>
+      `;
+    } else {
+      conPagos.forEach((t) => {
+        const pct = totalGeneral > 0 ? ((t.totalMonto / totalGeneral) * 100) : 0;
+        const promJornal = t.totalJornales > 0 ? (t.totalMonto / t.totalJornales) : 0;
+        const jrnStr = (t.totalJornales % 1 === 0) ? formatNum(t.totalJornales, 0) : formatNum(t.totalJornales, 1);
+        const inicial = (t.nombre || "T").trim().charAt(0).toUpperCase();
+
+        const itemEl = document.createElement("div");
+        itemEl.className = "p-3 bg-white hover:bg-amber-50/50 rounded-xl border border-slate-200/80 transition-all flex flex-col gap-2";
+        itemEl.innerHTML = `
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 font-black text-xs flex items-center justify-center shrink-0 border border-amber-200 shadow-2xs">
+                ${inicial}
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <h4 class="font-bold text-slate-900 text-xs sm:text-sm truncate">${t.nombre}</h4>
+                  <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium">${t.rol}</span>
+                </div>
+                <p class="text-[11px] text-slate-500 font-medium mt-0.5">
+                  <span class="font-bold text-slate-700">${jrnStr}</span> jornales (${t.registros} días) &bull; Prom: <span class="font-semibold text-slate-700">${formatMoney(promJornal)}</span>/jornal
+                </p>
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-xs sm:text-sm font-black text-amber-900">${formatMoney(t.totalMonto)}</div>
+              <div class="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-md inline-block mt-0.5">${pct.toFixed(1)}% del total</div>
+            </div>
+          </div>
+          <!-- Barra de porcentaje -->
+          <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+            <div class="bg-gradient-to-r from-amber-500 to-amber-600 h-full rounded-full transition-all duration-500" style="width: ${Math.min(100, Math.max(3, pct))}%;"></div>
+          </div>
+        `;
+        container.appendChild(itemEl);
+      });
+
+      // Otros trabajadores sin pagos en esta campaña
+      if (sinPagos.length > 0) {
+        const otrosCont = document.createElement("div");
+        otrosCont.className = "pt-2.5";
+        otrosCont.innerHTML = `
+          <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Sin pagos en esta campaña:</p>
+          <div class="flex flex-wrap gap-1.5">
+            ${sinPagos.map(sp => `
+              <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg border border-slate-200/60 font-medium">
+                ${sp.nombre} (S/. 0.00)
+              </span>
+            `).join('')}
+          </div>
+        `;
+        container.appendChild(otrosCont);
+      }
+    }
+  }
+
+  modal.showModal();
+}
+window.abrirModalResumenTrabajadores = abrirModalResumenTrabajadores;
+
 // ================= MODALES Y ACCIONES =================
 function abrirModalRegistroRapido() {
   if (!requiereModoEditor(() => abrirModalRegistroRapido())) return;

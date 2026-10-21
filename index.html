@@ -387,15 +387,18 @@
           </div>
 
           <!-- Mano de Obra / Jornales -->
-          <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <div onclick="abrirModalResumenTrabajadores()" class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between cursor-pointer hover:border-amber-400 hover:shadow-md transition-all group active:scale-[0.99]" title="Clic para ver cuánto se ha pagado a cada trabajador en esta campaña">
             <div class="flex items-center justify-between">
-              <p class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Mano de Obra</p>
-              <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <div class="flex items-center gap-1.5">
+                <p class="text-[10px] sm:text-xs font-bold text-slate-400 group-hover:text-amber-700 uppercase tracking-wider transition">Mano de Obra</p>
+                <span class="text-[9px] font-bold text-amber-700 bg-amber-100/90 px-1.5 py-0.5 rounded-md group-hover:bg-amber-200 transition">Ver pagos 👁️</span>
+              </div>
+              <div class="w-8 h-8 rounded-lg bg-amber-50 group-hover:bg-amber-100 text-amber-600 flex items-center justify-center transition">
                 👨‍🌾
               </div>
             </div>
             <div class="mt-2">
-              <h3 id="kpiJornalesMonto" class="text-lg sm:text-2xl font-black text-slate-900 truncate">S/. 0.00</h3>
+              <h3 id="kpiJornalesMonto" class="text-lg sm:text-2xl font-black text-slate-900 group-hover:text-amber-800 truncate transition">S/. 0.00</h3>
               <p class="text-[11px] text-slate-500 mt-0.5 font-medium truncate"><span id="kpiTotalHoras">0</span> jornales trabajados</p>
             </div>
           </div>
@@ -1376,6 +1379,56 @@
           <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow">Guardar Jornal</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <!-- Modal Pop-up: Resumen Rápido de Pagos por Trabajador en Campaña -->
+  <dialog id="modalResumenTrabajadores" class="rounded-2xl p-0 backdrop:bg-slate-900/60 shadow-2xl max-w-lg w-[94vw]">
+    <div class="bg-white rounded-2xl overflow-hidden flex flex-col max-h-[88vh]">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-xs">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-lg shadow-2xs">
+            👨‍🌾
+          </div>
+          <div>
+            <h3 class="font-bold text-sm sm:text-base text-white leading-tight">Pagos de Mano de Obra por Trabajador</h3>
+            <p id="resumenTrabajadoresSub" class="text-[11px] text-amber-100 font-medium">Acumulado en lo que va de la campaña</p>
+          </div>
+        </div>
+        <button type="button" onclick="cerrarDialog('modalResumenTrabajadores')" class="text-white/80 hover:text-white text-2xl leading-none px-2 py-0.5 rounded-lg hover:bg-white/10 transition">&times;</button>
+      </div>
+
+      <!-- Resumen Superior / Tarjetas Rápidas -->
+      <div class="bg-amber-50/70 border-b border-amber-100 p-3.5 sm:p-4 grid grid-cols-3 gap-2 sm:gap-3 shrink-0 text-center">
+        <div class="bg-white rounded-xl p-2.5 border border-amber-200/70 shadow-2xs">
+          <p class="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">Total Pagado</p>
+          <p id="resumenTrabajadoresTotalMonto" class="text-xs sm:text-sm font-black text-amber-900 truncate">S/. 0.00</p>
+        </div>
+        <div class="bg-white rounded-xl p-2.5 border border-amber-200/70 shadow-2xs">
+          <p class="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">Total Jornales</p>
+          <p id="resumenTrabajadoresTotalJornales" class="text-xs sm:text-sm font-black text-slate-800 truncate">0 jornales</p>
+        </div>
+        <div class="bg-white rounded-xl p-2.5 border border-amber-200/70 shadow-2xs">
+          <p class="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">Trabajadores</p>
+          <p id="resumenTrabajadoresCantidad" class="text-xs sm:text-sm font-black text-slate-800 truncate">0 activos</p>
+        </div>
+      </div>
+
+      <!-- Lista Detallada de Trabajadores con scroll si excede -->
+      <div id="resumenTrabajadoresLista" class="p-3.5 sm:p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-slate-100">
+        <!-- Render dinámico con JS -->
+      </div>
+
+      <!-- Footer con acceso directo a Jornales -->
+      <div class="p-3 sm:p-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0 text-xs">
+        <button type="button" onclick="cerrarDialog('modalResumenTrabajadores'); navigate('jornales');" class="text-amber-800 hover:text-amber-950 font-bold flex items-center gap-1.5 transition">
+          <span>📋 Ver historial de jornales</span> &rarr;
+        </button>
+        <button type="button" onclick="cerrarDialog('modalResumenTrabajadores')" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition cursor-pointer">
+          Cerrar
+        </button>
+      </div>
     </div>
   </dialog>
 
