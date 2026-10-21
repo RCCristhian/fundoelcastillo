@@ -2098,6 +2098,53 @@ function actualizarPrecioHoraTrabajador(trabajadorId) {
   }
 }
 
+// ================= CONTROL DE UNIDADES DE COSECHA (KILOS / UNIDADES) =================
+function esVariedadPorUnidad(variedadOId) {
+  if (!variedadOId) return false;
+  let v = null;
+  if (typeof variedadOId === "object") {
+    v = variedadOId;
+  } else {
+    v = (globalData.variedades || []).find(item => item && (item.id == variedadOId || String(item.id) === String(variedadOId)));
+  }
+  const nombreStr = v ? (v.nombre || '') : (typeof variedadOId === 'string' ? variedadOId : '');
+  const especieStr = v ? (v.especie || '') : '';
+  const unidadStr = v ? (v.unidad || '') : '';
+  const texto = `${nombreStr} ${especieStr} ${unidadStr}`.toLowerCase();
+  return texto.includes("platano") || texto.includes("plátano") || texto.includes("banan") || texto.includes("und") || texto.includes("unidad");
+}
+
+function getUnidadMedidaVariedad(variedadOId) {
+  return esVariedadPorUnidad(variedadOId) ? "und" : "kg";
+}
+
+function actualizarLabelsVentaSegunVariedad() {
+  const sel = document.getElementById("ventaVariedadId");
+  const lblCant = document.getElementById("lblVentaCantidad");
+  const inpCant = document.getElementById("ventaKilos");
+  const lblPrec = document.getElementById("lblVentaPrecio");
+  const inpPrec = document.getElementById("ventaPrecio");
+  if (!lblCant || !lblPrec) return;
+
+  const val = sel ? sel.value : null;
+  const esUnd = esVariedadPorUnidad(val);
+  if (esUnd) {
+    lblCant.innerHTML = 'Unidades Vendidas *';
+    if (inpCant) inpCant.placeholder = 'Ej: 1200';
+    lblPrec.innerHTML = 'Precio / Unidad (<span class="monedaLabel">S/.</span>) *';
+    if (inpPrec) inpPrec.placeholder = 'Ej: 0.12';
+  } else {
+    lblCant.innerHTML = 'Kilos *';
+    if (inpCant) inpCant.placeholder = 'Ej: 500';
+    lblPrec.innerHTML = 'Precio / Kg (<span class="monedaLabel">S/.</span>) *';
+    if (inpPrec) inpPrec.placeholder = 'Ej: 4.50';
+  }
+  actualizarMonedaLabels();
+}
+window.esVariedadPorUnidad = esVariedadPorUnidad;
+window.getUnidadMedidaVariedad = getUnidadMedidaVariedad;
+window.actualizarLabelsVentaSegunVariedad = actualizarLabelsVentaSegunVariedad;
+
 async function cargarVentas() {
   const res = await dataFetch("ventas", "*", "fecha", false);
   if (!res.success) return;
@@ -2114,8 +2161,16 @@ function renderTablaVentas(ventas) {
   if (badge) badge.textContent = ventas.length;
 
   ventas.forEach(v => {
-    const variedad = globalData.variedades.find(item => item.id == v.variedad_id);
+    const variedad = (globalData.variedades || []).find(item => item && (item.id == v.variedad_id || String(item.id) === String(v.variedad_id)));
     const varNombre = v.variedad_nombre || variedad?.nombre || "Variedad";
+    const esUnd = esVariedadPorUnidad(variedad || v.variedad_id || varNombre);
+
+    const cantFormateada = esUnd 
+      ? `${formatNum(v.kilos, 0)} und` 
+      : `${formatNum(v.kilos, 1)} kg`;
+    const precioUnitStr = esUnd
+      ? `${formatMoney(v.precio_kilo)} / und`
+      : `${formatMoney(v.precio_kilo)} / kg`;
 
     const estadoBadge = v.cobrado 
       ? `<span class="badge-status badge-paid">Cobrado</span>`
@@ -2126,8 +2181,8 @@ function renderTablaVentas(ventas) {
     tr.innerHTML = `
       <td class="py-2.5 px-3 text-slate-600 font-mono text-[11px]">${v.fecha}</td>
       <td class="py-2.5 px-3 font-bold text-slate-800">${varNombre}</td>
-      <td class="py-2.5 px-3 text-right font-medium text-slate-900">${formatNum(v.kilos, 1)} kg</td>
-      <td class="py-2.5 px-3 text-right text-slate-600">${formatMoney(v.precio_kilo)}</td>
+      <td class="py-2.5 px-3 text-right font-medium text-slate-900">${cantFormateada}</td>
+      <td class="py-2.5 px-3 text-right text-slate-600">${precioUnitStr}</td>
       <td class="py-2.5 px-3 text-right font-black text-emerald-700">${formatMoney(v.total)}</td>
       <td class="py-2.5 px-3 text-slate-700">${v.comprador || '-'}</td>
       <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${v.nro_boleta || v.nro_factura || '-'}</td>
@@ -3334,7 +3389,19 @@ function calcularYRenderizarDashboard() {
   const totalVentas = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
   const totalCobradoAlquileres = pagosAlquilerCamp.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
   const totalIngresosFinancieros = ingresosFin.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
-  const totalKilos = ventas.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
+
+  const ventasKilos = ventas.filter(v => !esVariedadPorUnidad(v.variedad_id));
+  const ventasUnidades = ventas.filter(v => esVariedadPorUnidad(v.variedad_id));
+  const totalKilos = ventasKilos.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
+  const totalUnidades = ventasUnidades.reduce((acc, v) => acc + (Number(v.kilos) || 0), 0);
+
+  let txtCosechaGlobal = `${formatNum(totalKilos, 0)} Kg`;
+  if (totalUnidades > 0) {
+    txtCosechaGlobal = totalKilos > 0 
+      ? `${formatNum(totalKilos, 0)} Kg + ${formatNum(totalUnidades, 0)} und`
+      : `${formatNum(totalUnidades, 0)} und`;
+  }
+
   const totalTratamientos = tratamientos.reduce((acc, t) => acc + (Number(t.total) || 0), 0);
   const totalEspecificos = especificos.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
   const totalGenerales = generales.reduce((acc, g) => acc + (Number(g.total) || 0), 0);
@@ -3376,7 +3443,7 @@ function calcularYRenderizarDashboard() {
   const dualIngresosCultivosEl = document.getElementById("dualIngresosCultivos");
   if (dualIngresosCultivosEl) dualIngresosCultivosEl.textContent = formatMoney(ingresosCultivos);
   const dualKilosCultivosEl = document.getElementById("dualKilosCultivos");
-  if (dualKilosCultivosEl) dualKilosCultivosEl.textContent = `${formatNum(totalKilos, 0)} Kg`;
+  if (dualKilosCultivosEl) dualKilosCultivosEl.textContent = txtCosechaGlobal;
   const dualCostosCultivosEl = document.getElementById("dualCostosCultivos");
   if (dualCostosCultivosEl) dualCostosCultivosEl.textContent = formatMoney(costosCultivos);
   const dualNetoCultivosEl = document.getElementById("dualNetoCultivos");
@@ -3439,7 +3506,7 @@ function calcularYRenderizarDashboard() {
   if (modoBalanceDashboard === "cultivos") {
     if (kpiIngresosLabel) kpiIngresosLabel.textContent = "Ventas Cultivos";
     if (kpiIngresos) kpiIngresos.textContent = formatMoney(ingresosCultivos);
-    if (kpiIngresosSub) kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${formatNum(totalKilos, 0)} Kg</span> fruta cosechada`;
+    if (kpiIngresosSub) kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${txtCosechaGlobal}</span> fruta cosechada`;
 
     if (kpiGastosLabel) kpiGastosLabel.textContent = "Costos Directos Campo";
     if (kpiGastos) kpiGastos.textContent = formatMoney(costosCultivos);
@@ -3461,7 +3528,7 @@ function calcularYRenderizarDashboard() {
     if (kpiIngresos) kpiIngresos.textContent = formatMoney(ingresosFundo);
     if (kpiIngresosSub) {
       const extraTxt = (totalCobradoAlquileres + totalIngresosFinancieros) > 0 ? ` + arriendos` : "";
-      kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${formatNum(totalKilos, 0)} Kg</span> fruta${extraTxt}`;
+      kpiIngresosSub.innerHTML = `<span id="kpiKilosTotales">${txtCosechaGlobal}</span> fruta${extraTxt}`;
     }
 
     if (kpiGastosLabel) kpiGastosLabel.textContent = "Egresos Fundo";
@@ -3758,6 +3825,7 @@ function renderTablaResumenEspecies(variedades) {
   let sumTotalCostos = 0;
   let sumNeto = 0;
   let sumKilos = 0;
+  let sumUnidades = 0;
 
   variedades.forEach(v => {
     sumArboles += v.num_arboles || 0;
@@ -3769,7 +3837,20 @@ function renderTablaResumenEspecies(variedades) {
     sumJornales += v.gasto_jornales;
     sumTotalCostos += v.total_gastos;
     sumNeto += v.resultado_neto;
-    sumKilos += v.kilos_vendidos;
+
+    const esUnd = esVariedadPorUnidad(v);
+    if (esUnd) {
+      sumUnidades += (Number(v.kilos_vendidos) || 0);
+    } else {
+      sumKilos += (Number(v.kilos_vendidos) || 0);
+    }
+
+    const cantVendidaStr = esUnd
+      ? `${formatNum(v.kilos_vendidos, 0)} und`
+      : `${formatNum(v.kilos_vendidos, 1)} kg`;
+    const precioPromStr = v.precio_promedio_kg > 0
+      ? `${formatMoney(v.precio_promedio_kg)} / ${esUnd ? 'und' : 'kg'}`
+      : '-';
 
     const netoClass = v.resultado_neto >= 0 ? "text-emerald-700 bg-emerald-50/50" : "text-rose-700 bg-rose-50/50";
 
@@ -3787,11 +3868,16 @@ function renderTablaResumenEspecies(variedades) {
       <td class="py-2.5 px-3 text-right font-semibold text-rose-700 bg-rose-50/30">${formatMoney(v.total_gastos)}</td>
       <td class="py-2.5 px-3 text-right font-black ${netoClass}">${formatMoney(v.resultado_neto)}</td>
       <td class="py-2.5 px-2 text-right font-medium text-slate-700">${v.resultado_por_arbol !== null ? formatMoney(v.resultado_por_arbol) : '-'}</td>
-      <td class="py-2.5 px-2 text-right font-medium text-slate-800">${formatNum(v.kilos_vendidos, 1)} kg</td>
-      <td class="py-2.5 px-2 text-right text-slate-600">${v.precio_promedio_kg > 0 ? formatMoney(v.precio_promedio_kg) : '-'}</td>
+      <td class="py-2.5 px-2 text-right font-medium text-slate-800">${cantVendidaStr}</td>
+      <td class="py-2.5 px-2 text-right text-slate-600">${precioPromStr}</td>
     `;
     tbody.appendChild(tr);
   });
+
+  let totCosechaFoot = `${formatNum(sumKilos, 1)} kg`;
+  if (sumUnidades > 0) {
+    totCosechaFoot = sumKilos > 0 ? `${formatNum(sumKilos, 1)} kg + ${formatNum(sumUnidades, 0)} und` : `${formatNum(sumUnidades, 0)} und`;
+  }
 
   tfoot.innerHTML = `
     <tr>
@@ -3806,8 +3892,8 @@ function renderTablaResumenEspecies(variedades) {
       <td class="py-3 px-3 text-right font-black text-rose-800">${formatMoney(sumTotalCostos)}</td>
       <td class="py-3 px-3 text-right font-black ${sumNeto >= 0 ? 'text-emerald-800' : 'text-rose-800'}">${formatMoney(sumNeto)}</td>
       <td class="py-3 px-2 text-right">${sumArboles > 0 ? formatMoney(sumNeto / sumArboles) : '-'}</td>
-      <td class="py-3 px-2 text-right font-bold">${formatNum(sumKilos, 1)} kg</td>
-      <td class="py-3 px-2 text-right">${sumKilos > 0 ? formatMoney(sumIngresos / sumKilos) : '-'}</td>
+      <td class="py-3 px-2 text-right font-bold">${totCosechaFoot}</td>
+      <td class="py-3 px-2 text-right text-slate-500 font-normal">-</td>
     </tr>
   `;
 }
@@ -4484,6 +4570,8 @@ function abrirModalVariedad() {
   document.getElementById("formVariedad").reset();
   if (document.getElementById("varEditId")) document.getElementById("varEditId").value = "";
   if (document.getElementById("varNumArboles")) document.getElementById("varNumArboles").value = "0";
+  const selUnd = document.getElementById("varUnidad");
+  if (selUnd) selUnd.value = "kg";
   document.getElementById("modalVariedad")?.showModal();
 }
 
@@ -4501,6 +4589,8 @@ function abrirModalEditarVariedad(id) {
   document.getElementById("varNumArboles").value = v.num_arboles || 0;
   document.getElementById("varAnio").value = v.anio_plantacion || "";
   document.getElementById("varHectareas").value = v.hectareas || 1.0;
+  const selUnd = document.getElementById("varUnidad");
+  if (selUnd) selUnd.value = esVariedadPorUnidad(v) ? "und" : (v.unidad || "kg");
 
   document.getElementById("modalVariedad")?.showModal();
 }
@@ -4606,6 +4696,7 @@ function abrirModalVenta() {
       fechaEl.value = new Date().toISOString().split("T")[0];
     }
   }
+  actualizarLabelsVentaSegunVariedad();
   document.getElementById("modalVenta")?.showModal();
 }
 
@@ -4630,6 +4721,7 @@ function abrirModalEditarVenta(id) {
   if (btn) btn.textContent = "Actualizar Venta";
 
   calcularTotalVenta();
+  actualizarLabelsVentaSegunVariedad();
   document.getElementById("modalVenta")?.showModal();
 }
 
@@ -5743,6 +5835,13 @@ async function guardarVariedad(e) {
     if (editId) customArboles[editId] = num_arboles;
     localStorage.setItem("fundo_arboles_custom", JSON.stringify(customArboles));
     localStorage.setItem("fundo_arboles_reales_iniciado", "true");
+
+    // Guardar unidad de medida de la variedad
+    const selUnd = document.getElementById("varUnidad")?.value || (esVariedadPorUnidad(nombre) ? "und" : "kg");
+    const unidadesMap = JSON.parse(localStorage.getItem("fundo_variedades_unidades") || "{}");
+    unidadesMap[nombre] = selUnd;
+    if (editId) unidadesMap[editId] = selUnd;
+    localStorage.setItem("fundo_variedades_unidades", JSON.stringify(unidadesMap));
 
     cerrarDialog("modalVariedad");
     document.getElementById("formVariedad").reset();
