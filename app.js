@@ -143,45 +143,22 @@ function actualizarUIModoEditor() {
   const container = document.getElementById("containerAuthEditorHeader");
   if (container) {
     if (editorActivo) {
+      // Candado Verde: Modo Editor Activo (sin texto)
       container.innerHTML = `
-        <div class="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/90 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-bold shadow-2xs">
-          <span class="text-xs">🔓</span>
-          <span class="hidden md:inline">Modo Editor</span>
-          <button type="button" onclick="bloquearModoEditor()" class="text-slate-400 hover:text-rose-600 ml-1 text-[10px] font-semibold transition" title="Bloquear modo editor en este dispositivo">🔒 Salir</button>
-        </div>
-      `;
-    } else {
-      container.innerHTML = `
-        <button type="button" onclick="abrirModalAuthEditor()" class="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95" title="Actualmente en modo solo lectura. Clic para desbloquear edición con contraseña.">
-          <span>🔒</span>
-          <span class="hidden sm:inline">Modo Lectura</span>
-          <span class="text-[10px] bg-amber-200/90 text-amber-950 px-1.5 py-0.5 rounded-md font-black">Desbloquear</span>
+        <button type="button" onclick="bloquearModoEditor()" class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-600 shadow-2xs cursor-pointer active:scale-95" title="Modo Editor (Clic para salir / bloquear)">
+          <svg class="w-4 h-4 sm:w-4.5 sm:h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+          </svg>
         </button>
       `;
-    }
-  }
-
-  const badgeSidebar = document.getElementById("badgeModoEditorSidebar");
-  if (badgeSidebar) {
-    if (editorActivo) {
-      badgeSidebar.className = "p-2 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-[11px] text-emerald-300 flex items-center justify-between";
-      badgeSidebar.removeAttribute("onclick");
-      badgeSidebar.innerHTML = `
-        <div class="flex items-center gap-1.5">
-          <span>🔓</span>
-          <span class="font-bold">Modo Editor</span>
-        </div>
-        <button onclick="bloquearModoEditor()" class="text-emerald-400 hover:text-rose-300 text-[10px] font-semibold">Salir</button>
-      `;
     } else {
-      badgeSidebar.className = "p-2 bg-amber-950/60 border border-amber-800/80 rounded-xl text-[11px] text-amber-300 flex items-center justify-between cursor-pointer hover:bg-amber-900/60 transition";
-      badgeSidebar.setAttribute("onclick", "abrirModalAuthEditor()");
-      badgeSidebar.innerHTML = `
-        <div class="flex items-center gap-1.5">
-          <span>🔒</span>
-          <span class="font-bold">Modo Lectura</span>
-        </div>
-        <span class="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-extrabold">Desbloquear</span>
+      // Candado Rojo: Modo Lectura (sin texto, clic abre modal para poner contraseña)
+      container.innerHTML = `
+        <button type="button" onclick="abrirModalAuthEditor()" class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-600 shadow-2xs cursor-pointer active:scale-95" title="Modo Lectura (Clic para ingresar contraseña de editor)">
+          <svg class="w-4 h-4 sm:w-4.5 sm:h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+        </button>
       `;
     }
   }
